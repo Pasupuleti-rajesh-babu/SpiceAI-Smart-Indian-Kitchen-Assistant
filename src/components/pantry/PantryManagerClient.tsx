@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { PlusCircle, Edit2, Trash2, CalendarDays, AlertTriangle, CheckCircle, PackageSearch } from 'lucide-react';
+import { PlusCircle, Edit2, Trash2, CalendarDays, AlertTriangle, CheckCircle, PackageSearch, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
@@ -28,6 +28,11 @@ export default function PantryManagerClient() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const handleAddItem = () => {
     if (!newItemName.trim() || !newItemQuantity.trim()) {
@@ -102,6 +107,14 @@ export default function PantryManagerClient() {
       if (!isValid(aDate) && !isValid(bDate)) return 0;
       return differenceInDays(aDate, bDate);
     });
+
+  if (!hasMounted) {
+    return (
+      <GlassCard className="space-y-8 p-6 md:p-8 flex justify-center items-center min-h-[300px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </GlassCard>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -233,3 +246,5 @@ export default function PantryManagerClient() {
     </div>
   );
 }
+
+    
