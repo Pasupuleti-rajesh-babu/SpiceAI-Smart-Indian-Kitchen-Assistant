@@ -2,21 +2,45 @@
 import React from 'react';
 import type { Recipe, DailyMealPlan } from '@/types/recipe';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Utensils, ListChecks, AlertTriangle, Sparkles, BarChart3, Leaf } from 'lucide-react';
+import { Utensils, ListChecks, AlertTriangle, Sparkles, BarChart3, Leaf, Heart, CalendarDays } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
 
 interface RecipeDisplayProps {
   recipe: Recipe | null;
   isLoading?: boolean;
-  title?: string; // Optional override title for the card
+  title?: string;
+  onToggleSaveMeal?: (dayIndex: number, mealType: 'breakfast' | 'lunch' | 'dinner') => void;
 }
 
 function formatMultilineText(text: string): string[] {
   return text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 }
 
-export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated Recipe" }: RecipeDisplayProps) {
+const MealCard: React.FC<{
+  mealName: string;
+  mealType: 'breakfast' | 'lunch' | 'dinner';
+  isSaved?: boolean;
+  onSaveToggle: () => void;
+}> = ({ mealName, mealType, isSaved, onSaveToggle }) => {
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="font-medium text-foreground/95 capitalize">{mealType}:</p>
+        <p>{mealName}</p>
+      </div>
+      <Button variant="ghost" size="icon" onClick={onSaveToggle} aria-label={`Save ${mealType}`}>
+        <Heart className={cn("h-5 w-5", isSaved ? "fill-red-500 text-red-500" : "text-muted-foreground")} />
+      </Button>
+    </div>
+  );
+};
+
+
+export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated Recipe", onToggleSaveMeal }: RecipeDisplayProps) {
   if (isLoading) {
     return (
       <GlassCard className="mt-6 animate-pulse">
@@ -45,14 +69,14 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
 
   return (
     <GlassCard className="mt-6">
-      {recipeName && (
+      {recipeName && ( // For single recipe display
         <div className="mb-6 flex items-center">
           <Utensils className="mr-3 h-7 w-7 text-primary" />
           <h2 className="text-2xl font-semibold text-primary">{recipeName}</h2>
         </div>
       )}
       
-      {!recipeName && title && (
+      {!recipeName && title && (dailyMealPlans || substituteIngredient || recipeSuggestions) && ( // For meal plans, substitutions, etc.
          <div className="mb-6 flex items-center">
           <Sparkles className="mr-3 h-7 w-7 text-primary" />
           <h2 className="text-2xl font-semibold text-primary">{title}</h2>
@@ -100,29 +124,48 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
 
       {dailyMealPlans && dailyMealPlans.length > 0 && (
          <div className="mb-4">
-           <h3 className="mb-3 flex items-center text-lg font-medium text-foreground">
-            <CalendarDays className="mr-2 h-5 w-5 text-indigo-500" /> Your 7-Day Meal Plan
-          </h3>
-          <Accordion type="single" collapsible className="w-full">
+           {!recipeName && !title && ( /* Only show this if it's not part of a larger recipe card */
+            <h3 className="mb-3 flex items-center text-lg font-medium text-foreground">
+                <CalendarDaysIcon className="mr-2 h-5 w-5 text-indigo-500" /> Your 7-Day Meal Plan
+            </h3>
+           )}
+          <Accordion type="single" collapsible className="w-full" defaultValue="day-0">
             {dailyMealPlans.map((item, index) => (
               <AccordionItem value={`day-${index}`} key={index}>
                 <AccordionTrigger className="hover:no-underline text-left">
                   <span className="font-semibold text-primary">{item.day}</span>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <div className="space-y-3 pl-2 pt-2 text-sm text-foreground/90">
-                    <div>
-                      <p className="font-medium text-foreground/95">Breakfast:</p>
-                      <p>{item.breakfast}</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground/95">Lunch:</p>
-                      <p>{item.lunch}</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground/95">Dinner:</p>
-                      <p>{item.dinner}</p>
-                    </div>
+                  <div className="space-y-4 pl-2 pt-2 text-sm text-foreground/90">
+                    {onToggleSaveMeal && (
+                      <>
+                        <MealCard 
+                          mealName={item.breakfast} 
+                          mealType="breakfast" 
+                          isSaved={item.isBreakfastSaved} 
+                          onSaveToggle={() => onToggleSaveMeal(index, 'breakfast')} 
+                        />
+                        <MealCard 
+                          mealName={item.lunch} 
+                          mealType="lunch" 
+                          isSaved={item.isLunchSaved} 
+                          onSaveToggle={() => onToggleSaveMeal(index, 'lunch')} 
+                        />
+                        <MealCard 
+                          mealName={item.dinner} 
+                          mealType="dinner" 
+                          isSaved={item.isDinnerSaved} 
+                          onSaveToggle={() => onToggleSaveMeal(index, 'dinner')} 
+                        />
+                      </>
+                    )}
+                    {!onToggleSaveMeal && ( // Fallback for non-interactive display
+                        <>
+                            <div><p className="font-medium">Breakfast:</p><p>{item.breakfast}</p></div>
+                            <div><p className="font-medium">Lunch:</p><p>{item.lunch}</p></div>
+                            <div><p className="font-medium">Dinner:</p><p>{item.dinner}</p></div>
+                        </>
+                    )}
                   </div>
                 </AccordionContent>
               </AccordionItem>
@@ -131,43 +174,45 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
         </div>
       )}
 
-      {ingredients && !recipeSuggestions && !dailyMealPlans && (
+      {ingredients && !recipeSuggestions && !dailyMealPlans && ( // For single recipe display
         <div className="mb-4">
           <h3 className="mb-2 flex items-center text-lg font-medium text-foreground">
             <ListChecks className="mr-2 h-5 w-5 text-blue-500" /> Ingredients
           </h3>
           <ul className="list-disc space-y-1 pl-5 text-foreground/90">
-            {formatMultilineText(ingredients).map((ingredient, index) => (
-              <li key={index}>{ingredient}</li>
+            {formatMultilineText(ingredients).map((ingredient, idx) => (
+              <li key={idx}>{ingredient}</li>
             ))}
           </ul>
         </div>
       )}
 
-      {instructions && !recipeSuggestions && !dailyMealPlans && (
+      {instructions && !recipeSuggestions && !dailyMealPlans && ( // For single recipe display
         <div>
           <h3 className="mb-2 flex items-center text-lg font-medium text-foreground">
             <Sparkles className="mr-2 h-5 w-5 text-yellow-500" /> Instructions
           </h3>
           <ol className="list-decimal space-y-2 pl-5 text-foreground/90">
-            {formatMultilineText(instructions).map((step, index) => (
-              <li key={index}>{step}</li>
+            {formatMultilineText(instructions).map((step, idx) => (
+              <li key={idx}>{step}</li>
             ))}
           </ol>
         </div>
       )}
 
-      {!ingredients && !instructions && !substituteIngredient && (!recipeSuggestions || recipeSuggestions.length === 0) && (!dailyMealPlans || dailyMealPlans.length === 0) && (
+      {!isLoading && !recipeName && !ingredients && !instructions && !substituteIngredient && (!recipeSuggestions || recipeSuggestions.length === 0) && (!dailyMealPlans || dailyMealPlans.length === 0) && (
         <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
           <AlertTriangle className="mb-2 h-10 w-10" />
           <p>No recipe details found or AI response format is unexpected.</p>
+          <p className="text-xs mt-1">Please try generating or try your query again.</p>
         </div>
       )}
     </GlassCard>
   );
 }
 
-function CalendarDays(props: React.SVGProps<SVGSVGElement>) {
+// Renamed to avoid conflict with lucide-react's CalendarDays if imported elsewhere
+function CalendarDaysIcon(props: React.SVGProps<SVGSVGElement>) { 
   return (
     <svg
       {...props}

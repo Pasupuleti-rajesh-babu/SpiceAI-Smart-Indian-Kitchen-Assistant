@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import AiFeatureCard from '@/components/ai/AiFeatureCard';
 import RecipeDisplay from '@/components/ai/RecipeDisplay';
-import type { Recipe } from '@/types/recipe';
+import type { Recipe, DailyMealPlan } from '@/types/recipe';
 import { aiMealPlanner, type AiMealPlannerInput } from '@/ai/flows/ai-meal-planner';
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -15,12 +15,12 @@ import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
-import { CalendarHeart, Sparkles, Send, Loader2 } from 'lucide-react';
+import { CalendarHeart, Sparkles, Send, Loader2, RefreshCw } from 'lucide-react';
 
 export default function AiMealPlannerClient() {
   const [pantryContents, setPantryContents] = useState('');
   const [dietaryGoals, setDietaryGoals] = useState('');
-  const [generatedPlan, setGeneratedPlan] = useState<Recipe | null>(null);
+  const [generatedPlan, setGeneratedPlan] = useState<Recipe | null>(null); // Recipe will contain dailyMealPlans
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [storedPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
@@ -38,6 +38,24 @@ export default function AiMealPlannerClient() {
     }
   }, [storedPantryItems, hasMounted]);
 
+  const handleToggleSaveMeal = (dayIndex: number, mealType: 'breakfast' | 'lunch' | 'dinner') => {
+    setGeneratedPlan(prevPlan => {
+      if (!prevPlan || !prevPlan.dailyMealPlans) return prevPlan;
+
+      const updatedDailyMealPlans = prevPlan.dailyMealPlans.map((day, index) => {
+        if (index === dayIndex) {
+          const updatedDay = { ...day };
+          if (mealType === 'breakfast') updatedDay.isBreakfastSaved = !updatedDay.isBreakfastSaved;
+          else if (mealType === 'lunch') updatedDay.isLunchSaved = !updatedDay.isLunchSaved;
+          else if (mealType === 'dinner') updatedDay.isDinnerSaved = !updatedDay.isDinnerSaved;
+          return updatedDay;
+        }
+        return day;
+      });
+      return { ...prevPlan, dailyMealPlans: updatedDailyMealPlans };
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pantryContents.trim() || !dietaryGoals.trim()) {
@@ -45,14 +63,17 @@ export default function AiMealPlannerClient() {
       return;
     }
     setIsLoading(true);
-    setGeneratedPlan(null);
+    // Do not reset generatedPlan here if we want to support partial regeneration
+    // setGeneratedPlan(null); 
     try {
       const input: AiMealPlannerInput = { 
         pantryContents, 
         dietaryGoals,
         cuisinePreferences: settings.cuisinePreferences && settings.cuisinePreferences.length > 0 ? settings.cuisinePreferences : undefined,
+        existingPlan: generatedPlan?.dailyMealPlans // Pass current plan if it exists
       };
       const result = await aiMealPlanner(input);
+      // The flow now returns the plan with saved flags preserved/updated
       setGeneratedPlan({
         recipeName: '', 
         ingredients: '', 
@@ -66,6 +87,25 @@ export default function AiMealPlannerClient() {
     }
     setIsLoading(false);
   };
+  
+  const handleForceRefreshAll = () => {
+    setGeneratedPlan(prev => {
+        if (!prev || !prev.dailyMealPlans) return null;
+        // Create a new plan object where all saved flags are false
+        const refreshedDailyPlans = prev.dailyMealPlans.map(day => ({
+            ...day,
+            isBreakfastSaved: false,
+            isLunchSaved: false,
+            isDinnerSaved: false,
+        }));
+        return { ...prev, dailyMealPlans: refreshedDailyPlans };
+    });
+    // Optionally, immediately trigger a regeneration after clearing saved states
+    // handleSubmit(new Event('submit') as any); // This is a bit hacky, direct call is better
+    // Or prompt user to click "Generate Meal Plan" again
+    toast({ title: "Plan Reset", description: "All meal locks removed. Click 'Generate Meal Plan' to get a completely new plan."});
+  };
+
 
   if (!hasMounted) {
     return (
@@ -84,7 +124,7 @@ export default function AiMealPlannerClient() {
   return (
     <AiFeatureCard
       title="AI Meal Planner"
-      description="Get a 7-day Indian meal plan based on your pantry, dietary goals, and cuisine preferences."
+      description="Get a 7-day Indian meal plan. Save meals you like, and regenerate the rest!"
       icon={CalendarHeart}
     >
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -120,16 +160,29 @@ export default function AiMealPlannerClient() {
               Your cuisine preferences from settings (currently: {settings.cuisinePreferences?.join(', ') || 'Any Indian'}) will be considered.
           </p>
         )}
-        <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
-          {isLoading ? (
-            <Sparkles className="mr-2 h-5 w-5 animate-spin" />
-          ) : (
-            <Send className="mr-2 h-5 w-5" />
-          )}
-          Generate Meal Plan
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+            <Button type="submit" disabled={isLoading} className="w-full sm:w-auto flex-grow">
+            {isLoading ? (
+                <Sparkles className="mr-2 h-5 w-5 animate-spin" />
+            ) : (
+                <Send className="mr-2 h-5 w-5" />
+            )}
+            {generatedPlan?.dailyMealPlans?.some(d => d.isBreakfastSaved || d.isLunchSaved || d.isDinnerSaved) ? 'Regenerate Unsaved Meals' : 'Generate Meal Plan'}
+            </Button>
+            {generatedPlan && (
+                <Button type="button" variant="outline" onClick={handleForceRefreshAll} disabled={isLoading} className="w-full sm:w-auto">
+                    <RefreshCw className="mr-2 h-5 w-5" />
+                    Start Fresh (Unlock All)
+                </Button>
+            )}
+        </div>
       </form>
-      <RecipeDisplay recipe={generatedPlan} isLoading={isLoading} title="Your Personalized Meal Plan" />
+      <RecipeDisplay 
+        recipe={generatedPlan} 
+        isLoading={isLoading} 
+        title="Your Personalized Meal Plan"
+        onToggleSaveMeal={handleToggleSaveMeal}
+      />
     </AiFeatureCard>
   );
 }

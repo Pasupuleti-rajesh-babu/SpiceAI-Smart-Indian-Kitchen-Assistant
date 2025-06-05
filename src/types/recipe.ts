@@ -4,6 +4,9 @@ export interface DailyMealPlan {
   breakfast: string;
   lunch: string;
   dinner: string;
+  isBreakfastSaved?: boolean;
+  isLunchSaved?: boolean;
+  isDinnerSaved?: boolean;
 }
 
 export interface Recipe {
@@ -17,7 +20,7 @@ export interface Recipe {
   isHealthy?: boolean;
   isBudgetFriendly?: boolean;
   // For AI Query Output
-  recipeSuggestions?: string[];
+  recipeSuggestions?: string[]; // This was for the old list output, might deprecate if not used
   // For AI Meal Planner Output - now structured
   dailyMealPlans?: DailyMealPlan[];
 }
