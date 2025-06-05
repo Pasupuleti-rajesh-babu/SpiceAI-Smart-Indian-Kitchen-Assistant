@@ -21,10 +21,22 @@ export default function AiFeaturesPage() {
 
       <Tabs defaultValue="meal-planner" className="w-full">
         <TabsList className="grid w-full grid-cols-2 gap-2 mb-6 md:grid-cols-4">
-          <TabsTrigger value="meal-planner" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><CalendarHeart className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Meal Planner</TabsTrigger>
-          <TabsTrigger value="substitution" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><Replace className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Substitutions</TabsTrigger>
-          <TabsTrigger value="ai-query" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><FileQuestion className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />AI Query</TabsTrigger>
-          <TabsTrigger value="mood-recipes" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><ChefHat className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Mood Recipes</TabsTrigger>
+          <TabsTrigger value="meal-planner" className="flex flex-col items-center justify-center text-xs p-1 h-auto sm:flex-row sm:text-sm sm:px-3 sm:py-1.5 sm:h-10">
+            <CalendarHeart className="h-4 w-4 mb-0.5 sm:mr-2 sm:mb-0 sm:h-5 sm:w-5" />
+            Meal Planner
+          </TabsTrigger>
+          <TabsTrigger value="substitution" className="flex flex-col items-center justify-center text-xs p-1 h-auto sm:flex-row sm:text-sm sm:px-3 sm:py-1.5 sm:h-10">
+            <Replace className="h-4 w-4 mb-0.5 sm:mr-2 sm:mb-0 sm:h-5 sm:w-5" />
+            Substitutions
+          </TabsTrigger>
+          <TabsTrigger value="ai-query" className="flex flex-col items-center justify-center text-xs p-1 h-auto sm:flex-row sm:text-sm sm:px-3 sm:py-1.5 sm:h-10">
+            <FileQuestion className="h-4 w-4 mb-0.5 sm:mr-2 sm:mb-0 sm:h-5 sm:w-5" />
+            AI Query
+          </TabsTrigger>
+          <TabsTrigger value="mood-recipes" className="flex flex-col items-center justify-center text-xs p-1 h-auto sm:flex-row sm:text-sm sm:px-3 sm:py-1.5 sm:h-10">
+            <ChefHat className="h-4 w-4 mb-0.5 sm:mr-2 sm:mb-0 sm:h-5 sm:w-5" />
+            Mood Recipes
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="meal-planner">
