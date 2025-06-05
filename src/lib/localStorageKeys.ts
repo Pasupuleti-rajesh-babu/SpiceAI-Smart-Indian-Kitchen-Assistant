@@ -5,4 +5,5 @@ export const AI_MEAL_PLAN_KEY = 'spiceAI_aiMealPlan';
 export const AI_SUBSTITUTION_RESULT_KEY = 'spiceAI_aiSubstitutionResult';
 export const AI_QUERY_RESULT_KEY = 'spiceAI_aiQueryResult';
 export const AI_MOOD_RECIPE_RESULT_KEY = 'spiceAI_aiMoodRecipeResult';
+export const BARCODE_DATABASE_KEY = 'spiceAI_barcodeDatabase';
 

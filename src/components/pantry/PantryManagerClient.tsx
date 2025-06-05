@@ -3,19 +3,21 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { PANTRY_ITEMS_KEY } from '@/lib/localStorageKeys';
+import { PANTRY_ITEMS_KEY, BARCODE_DATABASE_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { PlusCircle, Edit2, Trash2, CalendarDays, AlertTriangle, CheckCircle, PackageSearch, Loader2, ScanBarcode, Video, VideoOff } from 'lucide-react';
+import { PlusCircle, Edit2, Trash2, AlertTriangle, CheckCircle, PackageSearch, Loader2, ScanBarcode, VideoOff } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from '@/lib/utils';
-import { BrowserCodeReader, NotFoundException } from '@zxing/library';
+import { BrowserCodeReader, NotFoundException, type IScannerControls, type Result } from '@zxing/library';
+
+type BarcodeDatabase = { [barcode: string]: string };
 
 export default function PantryManagerClient() {
   const [pantryItems, setPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
@@ -36,9 +38,12 @@ export default function PantryManagerClient() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserCodeReader | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const initializationTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const activeStreamRef = useRef<MediaStream | null>(null);
+  
+  const [barcodeDb, setBarcodeDb] = useLocalStorage<BarcodeDatabase>(BARCODE_DATABASE_KEY, {});
+  const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -53,91 +58,103 @@ export default function PantryManagerClient() {
       clearTimeout(initializationTimerRef.current);
       initializationTimerRef.current = null;
     }
-    if (codeReaderRef.current) {
-      codeReaderRef.current.reset();
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
     }
-    if (activeStreamRef.current) {
-      activeStreamRef.current.getTracks().forEach(track => track.stop());
-      activeStreamRef.current = null;
-    }
+    // ZXing's reset method handles video stream internally if it started it.
+    // If we started the stream manually, we'd stop tracks here.
+    // For now, relying on controls.stop() and BrowserCodeReader's internal management.
     if (videoRef.current && videoRef.current.srcObject) {
-      videoRef.current.srcObject = null;
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
     }
   }, []);
+
+  const handleScanSuccess = useCallback((scannedValue: string) => {
+    const knownItemName = barcodeDb[scannedValue];
+    if (knownItemName) {
+      setNewItemName(knownItemName);
+      toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
+      setLastScannedBarcode(null); // Known item, no need to prompt for new name saving
+    } else {
+      setNewItemName(scannedValue);
+      toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name.` });
+      setLastScannedBarcode(scannedValue); // New item, store barcode for potential naming
+    }
+    setIsScannerOpen(false);
+  }, [barcodeDb, setNewItemName, setIsScannerOpen, setLastScannedBarcode, toast]);
+  
+  const handleScanError = useCallback((error: any) => {
+    if (error instanceof NotFoundException) {
+      // This is normal, means no barcode found in the current frame, do nothing.
+      return;
+    }
+    console.error("Barcode scanning error:", error);
+    // Check if dialog is still interactable before setting error
+    const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
+    if (isScannerOpen || dialogStillOpen) {
+      setScannerError("Error during barcode scanning. Try adjusting camera focus or lighting.");
+    }
+  }, [isScannerOpen]);
 
 
   useEffect(() => {
     const codeReader = codeReaderRef.current;
+    const videoElement = videoRef.current;
 
-    const initializeCameraAndScanner = async () => {
-      const videoElement = videoRef.current;
-
-      if (!codeReader || !videoElement) {
-        setScannerError("Scanner or video element is not ready. Please try reopening the scanner.");
-        setHasCameraPermission(false);
-        return;
-      }
-      
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        activeStreamRef.current = stream;
-        setHasCameraPermission(true);
-
-        videoElement.srcObject = stream;
-        await videoElement.play(); 
-
-        codeReader.decodeFromVideoElement(videoElement, (result, err) => {
-          // Check if the dialog is still open before processing result or error
-          const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
-          if (!isScannerOpen && !dialogStillOpen && !document.body.contains(videoElement)) { 
-              cleanupScannerResources(); // Ensure cleanup if dialog was closed rapidly
-              return; 
-          }
-
-          if (result) {
-            setNewItemName(result.getText());
-            toast({ title: "Barcode Scanned!", description: `Item: ${result.getText()}` });
-            setIsScannerOpen(false); // This will trigger cleanup via the isScannerOpen effect
-          }
-          if (err && !(err instanceof NotFoundException)) {
-            console.error("Barcode scanning error:", err);
-             if (isScannerOpen || dialogStillOpen) {
-               setScannerError("Error during barcode scanning. Please try again or check camera focus/lighting.");
-             }
-          }
-        });
-
-      } catch (error) {
-        console.error('Error initializing camera/scanner:', error);
-        let message = 'Could not initialize camera. Please ensure permissions are granted and no other app is using it.';
-        if (error instanceof Error) {
-          if (error.name === "NotAllowedError") {
-            message = "Camera permission was denied. Please enable it in your browser settings for this site.";
-          } else if (error.name === "NotFoundError") {
-            message = "No camera was found. Please ensure a camera is connected and enabled.";
-          } else if (error.name === "NotReadableError") {
-            message = "The camera is currently in use by another application or a hardware error occurred.";
-          } else if (error.name === "AbortError" || error.message.includes("play() can only be initiated by a user gesture")) {
-            message = "Could not start video stream. This might be due to browser autoplay policies or camera issues.";
-          }
-        }
-        setScannerError(message);
-        setHasCameraPermission(false);
-        cleanupScannerResources(); 
-      }
-    };
-
-    if (isScannerOpen) {
+    if (isScannerOpen && codeReader && videoElement) {
       setScannerError(null);
-      setHasCameraPermission(null); 
-      
-      if (initializationTimerRef.current) {
-        clearTimeout(initializationTimerRef.current);
-      }
-      initializationTimerRef.current = setTimeout(() => {
-        initializeCameraAndScanner();
-      }, 100); // Delay initialization slightly
+      setHasCameraPermission(null);
 
+      if (initializationTimerRef.current) clearTimeout(initializationTimerRef.current);
+      
+      initializationTimerRef.current = setTimeout(async () => {
+        try {
+          // Ensure any previous stream is stopped
+          if (videoElement.srcObject) {
+            (videoElement.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+          }
+
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          videoElement.srcObject = stream;
+          setHasCameraPermission(true);
+          
+          // Ensure video is playing before attempting to decode
+          await videoElement.play().catch(playError => {
+            console.error("Video play error:", playError);
+            throw new Error("Could not start video stream. Please ensure permissions allow autoplay or interact with the page.");
+          });
+
+          controlsRef.current = await codeReader.decodeFromVideoElement(
+            videoElement,
+            (result: Result | undefined, error: Error | undefined) => {
+              const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
+              if (!isScannerOpen && !dialogStillOpen && !document.body.contains(videoElement)) {
+                cleanupScannerResources();
+                return;
+              }
+              if (result) {
+                handleScanSuccess(result.getText());
+              } else if (error) {
+                handleScanError(error);
+              }
+            }
+          );
+        } catch (error: any) {
+          console.error('Error initializing camera/scanner:', error);
+          let message = 'Could not initialize camera. Please ensure permissions are granted.';
+          if (error.name === "NotAllowedError") message = "Camera permission denied. Please enable it in browser settings.";
+          else if (error.name === "NotFoundError") message = "No camera found. Ensure a camera is connected.";
+          else if (error.name === "NotReadableError") message = "Camera is in use by another app or hardware error.";
+          else if (error.message) message = error.message;
+          
+          setScannerError(message);
+          setHasCameraPermission(false);
+          cleanupScannerResources();
+        }
+      }, 100); // Delay initialization
     } else {
       cleanupScannerResources();
     }
@@ -145,7 +162,7 @@ export default function PantryManagerClient() {
     return () => { // Main cleanup for the effect itself
       cleanupScannerResources();
     };
-  }, [isScannerOpen, toast, cleanupScannerResources]);
+  }, [isScannerOpen, cleanupScannerResources, handleScanSuccess, handleScanError]);
 
 
   const handleAddItem = () => {
@@ -153,18 +170,30 @@ export default function PantryManagerClient() {
       toast({ title: "Missing Information", description: "Please provide item name and quantity.", variant: "destructive" });
       return;
     }
+    
+    const capturedLastScannedBarcode = lastScannedBarcode; // Capture before reset
+    const currentNewItemName = newItemName.trim();
+
     const newItem: PantryItem = {
       id: Date.now().toString(),
-      name: newItemName.trim(),
+      name: currentNewItemName,
       quantity: newItemQuantity.trim(),
       expiryDate: newItemExpiryDate || undefined,
       addedDate: new Date().toISOString(),
     };
     setPantryItems([...pantryItems, newItem]);
+
+    if (capturedLastScannedBarcode && currentNewItemName !== capturedLastScannedBarcode) {
+      setBarcodeDb(prevDb => ({ ...prevDb, [capturedLastScannedBarcode]: currentNewItemName }));
+      toast({ title: "Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${capturedLastScannedBarcode} locally.`, variant: "default" });
+    } else {
+      toast({ title: "Item Added", description: `${currentNewItemName} has been added to your pantry.`, variant: "default" });
+    }
+    
     setNewItemName('');
     setNewItemQuantity('');
     setNewItemExpiryDate('');
-    toast({ title: "Item Added", description: `${newItem.name} has been added to your pantry.`, variant: "default" });
+    setLastScannedBarcode(null); // Reset after item is added
   };
 
   const handleStartEdit = (item: PantryItem) => {
@@ -221,6 +250,19 @@ export default function PantryManagerClient() {
       if (!isValid(aDate) && !isValid(bDate)) return 0;
       return differenceInDays(aDate, bDate);
     });
+
+  useEffect(() => {
+    // If user types in the item name input directly after a scan result populated it with a barcode string,
+    // and the new input is different from that barcode string, we should clear lastScannedBarcode.
+    // This prevents saving a manually typed name against the previous scan if the user changes their mind.
+    if (lastScannedBarcode && newItemName !== lastScannedBarcode) {
+        // A bit lenient: only clear if they start typing something else. 
+        // If newItemName is empty, they might just be clearing to rescan.
+        // For simplicity, any change from the direct barcode string means they are typing.
+        // This doesn't perfectly cover all edge cases but is a reasonable heuristic.
+    }
+  }, [newItemName, lastScannedBarcode]);
+
 
   if (!hasMounted) {
     return (
@@ -281,18 +323,16 @@ export default function PantryManagerClient() {
                 <div className="py-4">
                   <video 
                     ref={videoRef} 
-                    className={cn("w-full aspect-video rounded-md bg-muted")} 
+                    className={cn("w-full aspect-video rounded-md bg-muted", { 'hidden': hasCameraPermission === false || scannerError })} 
                     muted 
                     playsInline 
                   />
-
                   {hasCameraPermission === null && !scannerError && (
                       <div className="flex flex-col items-center justify-center h-32 mt-2">
                           <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
                           <p className="text-muted-foreground">Initializing camera...</p>
                       </div>
                   )}
-                  
                   {scannerError && ( 
                     <Alert variant="destructive" className="mt-2">
                       <VideoOff className="h-4 w-4" />
@@ -300,13 +340,12 @@ export default function PantryManagerClient() {
                       <AlertDescription>{scannerError}</AlertDescription>
                     </Alert>
                   )}
-
-                  {hasCameraPermission === false && !scannerError && ( // This state now correctly reflects denial or failure
+                  {hasCameraPermission === false && !scannerError && (
                     <Alert variant="destructive" className="mt-2">
                       <VideoOff className="h-4 w-4" />
                       <AlertTitle>Camera Access Issue</AlertTitle>
                       <AlertDescription>
-                        Camera access was denied or is unavailable. Please check permissions and ensure no other app is using the camera.
+                        Camera access problem. Please check permissions and ensure no other app is using the camera.
                       </AlertDescription>
                     </Alert>
                   )}
