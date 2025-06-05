@@ -2,7 +2,7 @@
 'use server';
 
 /**
- * @fileOverview This file defines a Genkit flow for generating a 7-day Indian meal plan based on user's pantry contents and dietary goals.
+ * @fileOverview This file defines a Genkit flow for generating a 7-day Indian meal plan based on user's pantry contents, dietary goals, and cuisine preferences.
  *
  * - aiMealPlanner - A function that generates a 7-day Indian meal plan.
  * - AiMealPlannerInput - The input type for the aiMealPlanner function.
@@ -21,6 +21,10 @@ const AiMealPlannerInputSchema = z.object({
     .describe(
       'The dietary goals of the user, e.g., weight loss, high protein. Specify any allergies or ingredients to avoid here as well.'
     ),
+  cuisinePreferences: z
+    .array(z.string())
+    .optional()
+    .describe('Optional list of preferred Indian cuisines, e.g., ["South Indian", "Punjabi"].'),
 });
 export type AiMealPlannerInput = z.infer<typeof AiMealPlannerInputSchema>;
 
@@ -48,10 +52,16 @@ const mealPlanPrompt = ai.definePrompt({
 
 Based on the user's pantry contents and dietary goals, generate a 7-day Indian meal plan.
 Consider smart ingredient substitutions based on availability and dietary needs.
-The meal plan should be easy to follow.
+The meal plan should be easy to follow and primarily feature Indian cuisine.
 
 Pantry Contents: {{{pantryContents}}}
 Dietary Goals: {{{dietaryGoals}}}
+{{#if cuisinePreferences.length}}
+Preferred Indian Cuisines: {{#each cuisinePreferences}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}
+When generating the meal plan, please try to incorporate dishes from these preferred Indian cuisines.
+{{else}}
+The user has not specified any particular Indian cuisine preferences, so you can suggest a general Indian meal plan.
+{{/if}}
 
 Respond *only* with a JSON array, where each element is an object representing a day. Each day object must have the following string properties: "day", "breakfast", "lunch", and "dinner".
 For example: [{"day": "Monday", "breakfast": "Poha", "lunch": "Rajma Chawal", "dinner": "Palak Paneer with Roti"}, ...]

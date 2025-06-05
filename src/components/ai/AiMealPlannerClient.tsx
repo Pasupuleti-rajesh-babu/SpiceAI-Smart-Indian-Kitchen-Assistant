@@ -11,8 +11,10 @@ import type { Recipe } from '@/types/recipe';
 import { aiMealPlanner, type AiMealPlannerInput } from '@/ai/flows/ai-meal-planner';
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { PANTRY_ITEMS_KEY } from '@/lib/localStorageKeys';
+import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
+import type { AppSettings } from '@/types/settings';
+import { defaultAppSettings } from '@/types/settings';
 import { CalendarHeart, Sparkles, Send } from 'lucide-react';
 
 export default function AiMealPlannerClient() {
@@ -22,6 +24,7 @@ export default function AiMealPlannerClient() {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [storedPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
+  const [settings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
 
   useEffect(() => {
     if (storedPantryItems.length > 0) {
@@ -39,13 +42,17 @@ export default function AiMealPlannerClient() {
     setIsLoading(true);
     setGeneratedPlan(null);
     try {
-      const input: AiMealPlannerInput = { pantryContents, dietaryGoals };
+      const input: AiMealPlannerInput = { 
+        pantryContents, 
+        dietaryGoals,
+        cuisinePreferences: settings.cuisinePreferences && settings.cuisinePreferences.length > 0 ? settings.cuisinePreferences : undefined,
+      };
       const result = await aiMealPlanner(input);
       setGeneratedPlan({
         recipeName: '', 
         ingredients: '', 
         instructions: '', 
-        dailyMealPlans: result.mealPlan // result.mealPlan is now an array of DailyMealPlan
+        dailyMealPlans: result.mealPlan
       });
       toast({ title: "Meal Plan Generated!", description: "Your 7-day Indian meal plan is ready.", variant: "default" });
     } catch (error) {
@@ -58,7 +65,7 @@ export default function AiMealPlannerClient() {
   return (
     <AiFeatureCard
       title="AI Meal Planner"
-      description="Get a 7-day Indian meal plan based on your pantry and dietary goals."
+      description="Get a 7-day Indian meal plan based on your pantry, dietary goals, and cuisine preferences."
       icon={CalendarHeart}
     >
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -89,6 +96,9 @@ export default function AiMealPlannerClient() {
             required
           />
         </div>
+        <p className="text-xs text-muted-foreground">
+            Your cuisine preferences from settings (currently: {settings.cuisinePreferences?.join(', ') || 'Any Indian'}) will be considered.
+        </p>
         <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
           {isLoading ? (
             <Sparkles className="mr-2 h-5 w-5 animate-spin" />
