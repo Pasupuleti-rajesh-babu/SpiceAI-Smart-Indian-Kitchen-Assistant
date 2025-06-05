@@ -45,7 +45,6 @@ export default function PantryManagerClient() {
 
   useEffect(() => {
     let stream: MediaStream | null = null;
-    // Capture current refs for use in cleanup, as their .current might change if component re-renders.
     const currentCodeReader = codeReaderRef.current;
     const currentVideoElement = videoRef.current;
 
@@ -63,7 +62,7 @@ export default function PantryManagerClient() {
 
     if (isScannerOpen) {
       setScannerError(null);
-      setHasCameraPermission(null); // Reset for loading state
+      setHasCameraPermission(null); 
 
       const initializeCameraAndScanner = async () => {
         if (!currentCodeReader || !currentVideoElement) {
@@ -77,24 +76,24 @@ export default function PantryManagerClient() {
           setHasCameraPermission(true);
 
           currentVideoElement.srcObject = stream;
-          // Explicitly play the video and wait for it
           await currentVideoElement.play(); 
 
           currentCodeReader.decodeFromVideoElement(currentVideoElement, (result, err) => {
-            // Check if the scanner is still supposed to be open when the callback fires
-            if (!isScannerOpen && !document.querySelector('[data-radix-dialog-content][aria-modal="true"]')) { // Second check for dialog presence
+            const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
+
+            if (!isScannerOpen && !dialogStillOpen) { 
                 return; 
             }
 
             if (result) {
               setNewItemName(result.getText());
               toast({ title: "Barcode Scanned!", description: `Item: ${result.getText()}` });
-              setIsScannerOpen(false); // This will trigger cleanup via this useEffect's else branch
+              setIsScannerOpen(false); 
             }
             if (err && !(err instanceof NotFoundException)) {
               console.error("Barcode scanning error:", err);
-               if (isScannerOpen || document.querySelector('[data-radix-dialog-content][aria-modal="true"]')) {
-                 setScannerError("Error during barcode scanning. Please try again.");
+               if (isScannerOpen || dialogStillOpen) {
+                 setScannerError("Error during barcode scanning. Please try again or check camera.");
                }
             }
           });
@@ -115,17 +114,17 @@ export default function PantryManagerClient() {
           }
           setScannerError(message);
           setHasCameraPermission(false);
-          cleanupScanner(); // Cleanup resources immediately on error
+          cleanupScanner(); 
         }
       };
 
       initializeCameraAndScanner();
     } else {
-      cleanupScanner(); // Cleanup when dialog is intentionally closed
+      cleanupScanner(); 
     }
 
-    return cleanupScanner; // This is the main cleanup that runs when isScannerOpen changes or component unmounts
-  }, [isScannerOpen, toast]); // Removed setNewItemName and setIsScannerOpen as direct calls inside are fine
+    return cleanupScanner; 
+  }, [isScannerOpen, toast]);
 
 
   const handleAddItem = () => {
