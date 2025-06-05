@@ -16,7 +16,7 @@ import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
-import { Replace, Sparkles, Send } from 'lucide-react';
+import { Replace, Sparkles, Send, Loader2 } from 'lucide-react';
 
 export default function AiSubstitutionClient() {
   const [ingredient, setIngredient] = useState('');
@@ -26,9 +26,14 @@ export default function AiSubstitutionClient() {
   const [generatedSubstitution, setGeneratedSubstitution] = useState<Recipe | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const [hasMounted, setHasMounted] = useState(false);
 
   const [storedPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
   const [settings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,6 +72,20 @@ export default function AiSubstitutionClient() {
     }
     setIsLoading(false);
   };
+
+  if (!hasMounted) {
+    return (
+      <AiFeatureCard
+        title="AI Ingredient Substitution"
+        description="Find healthy, budget-friendly Indian alternatives for ingredients."
+        icon={Replace}
+      >
+        <div className="flex justify-center items-center min-h-[200px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AiFeatureCard>
+    );
+  }
 
   return (
     <AiFeatureCard

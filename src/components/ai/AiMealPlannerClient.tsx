@@ -11,7 +11,7 @@ import type { Recipe, DailyMealPlan } from '@/types/recipe';
 import { aiMealPlanner, type AiMealPlannerInput } from '@/ai/flows/ai-meal-planner';
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
+import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY, AI_MEAL_PLAN_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
@@ -20,7 +20,7 @@ import { CalendarHeart, Sparkles, Send, Loader2, RefreshCw } from 'lucide-react'
 export default function AiMealPlannerClient() {
   const [pantryContents, setPantryContents] = useState('');
   const [dietaryGoals, setDietaryGoals] = useState('');
-  const [generatedPlan, setGeneratedPlan] = useState<Recipe | null>(null); // Recipe will contain dailyMealPlans
+  const [generatedPlan, setGeneratedPlan] = useLocalStorage<Recipe | null>(AI_MEAL_PLAN_KEY, null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [storedPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
@@ -98,11 +98,14 @@ export default function AiMealPlannerClient() {
             isLunchSaved: false,
             isDinnerSaved: false,
         }));
-        return { ...prev, dailyMealPlans: refreshedDailyPlans };
+        // Also clear any top-level recipe details if they exist from other contexts
+        return { 
+          recipeName: '', 
+          ingredients: '', 
+          instructions: '', 
+          dailyMealPlans: refreshedDailyPlans 
+        };
     });
-    // Optionally, immediately trigger a regeneration after clearing saved states
-    // handleSubmit(new Event('submit') as any); // This is a bit hacky, direct call is better
-    // Or prompt user to click "Generate Meal Plan" again
     toast({ title: "Plan Reset", description: "All meal locks removed. Click 'Generate Meal Plan' to get a completely new plan."});
   };
 
@@ -111,7 +114,7 @@ export default function AiMealPlannerClient() {
     return (
       <AiFeatureCard
         title="AI Meal Planner"
-        description="Get a 7-day Indian meal plan based on your pantry, dietary goals, and cuisine preferences."
+        description="Get a 7-day Indian meal plan. Save meals you like, and regenerate the rest!"
         icon={CalendarHeart}
       >
         <div className="flex justify-center items-center min-h-[200px]">
@@ -169,7 +172,7 @@ export default function AiMealPlannerClient() {
             )}
             {generatedPlan?.dailyMealPlans?.some(d => d.isBreakfastSaved || d.isLunchSaved || d.isDinnerSaved) ? 'Regenerate Unsaved Meals' : 'Generate Meal Plan'}
             </Button>
-            {generatedPlan && (
+            {generatedPlan && generatedPlan.dailyMealPlans && generatedPlan.dailyMealPlans.length > 0 && (
                 <Button type="button" variant="outline" onClick={handleForceRefreshAll} disabled={isLoading} className="w-full sm:w-auto">
                     <RefreshCw className="mr-2 h-5 w-5" />
                     Start Fresh (Unlock All)
