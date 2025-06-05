@@ -71,7 +71,7 @@ export default function AiFeaturesPage() {
         </div>
          <div className="mt-8 text-center">
             <Image 
-              src="/ai-coming-soon.png" 
+              src="/aimagic.png" 
               alt="Future AI features in kitchen" 
               width={500} 
               height={300} 

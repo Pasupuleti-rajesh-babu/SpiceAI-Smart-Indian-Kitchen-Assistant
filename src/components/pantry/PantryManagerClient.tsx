@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { PANTRY_ITEMS_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
@@ -9,11 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { PlusCircle, Edit2, Trash2, CalendarDays, AlertTriangle, CheckCircle, PackageSearch, Loader2 } from 'lucide-react';
+import { PlusCircle, Edit2, Trash2, CalendarDays, AlertTriangle, CheckCircle, PackageSearch, Loader2, ScanBarcode, Video, VideoOff } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from '@/lib/utils';
+import { BrowserCodeReader, NotFoundException } from '@zxing/library';
 
 export default function PantryManagerClient() {
   const [pantryItems, setPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
@@ -30,9 +32,85 @@ export default function PantryManagerClient() {
   const { toast } = useToast();
   const [hasMounted, setHasMounted] = useState(false);
 
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const codeReaderRef = useRef<BrowserCodeReader | null>(null);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+
   useEffect(() => {
     setHasMounted(true);
+    codeReaderRef.current = new BrowserCodeReader();
   }, []);
+
+  const startScanner = useCallback(async () => {
+    if (!isScannerOpen || !codeReaderRef.current || !videoRef.current) return;
+    setScannerError(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setHasCameraPermission(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(err => {
+          console.error("Error playing video:", err);
+          setScannerError("Could not play video stream. Please check camera permissions and ensure no other app is using the camera.");
+          setHasCameraPermission(false);
+        });
+
+        codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, err) => {
+          if (result) {
+            setNewItemName(result.getText());
+            toast({ title: "Barcode Scanned!", description: `Barcode: ${result.getText()}` });
+            setIsScannerOpen(false); // Close dialog on successful scan
+          }
+          if (err && !(err instanceof NotFoundException)) {
+            console.error("Barcode scanning error:", err);
+            // Set a generic error or specific one if needed, but avoid flooding with NotFoundException
+            // setScannerError("Error during barcode scanning. Please try again.");
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      setScannerError('Camera access denied or no camera found. Please enable camera permissions in your browser settings.');
+      setHasCameraPermission(false);
+      toast({
+        variant: 'destructive',
+        title: 'Camera Access Denied',
+        description: 'Please enable camera permissions in your browser settings.',
+      });
+    }
+  }, [isScannerOpen, toast]);
+
+  useEffect(() => {
+    if (isScannerOpen) {
+      startScanner();
+    } else {
+      // Stop camera and scanner when dialog is closed
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+      }
+      if (codeReaderRef.current) {
+        codeReaderRef.current.reset();
+      }
+      setHasCameraPermission(null); // Reset permission status
+      setScannerError(null); // Clear any previous errors
+    }
+    // Cleanup function
+    return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (codeReaderRef.current) {
+        codeReaderRef.current.reset();
+      }
+    };
+  }, [isScannerOpen, startScanner]);
+
 
   const handleAddItem = () => {
     if (!newItemName.trim() || !newItemQuantity.trim()) {
@@ -120,15 +198,15 @@ export default function PantryManagerClient() {
     <div className="space-y-8">
       <GlassCard>
         <h2 className="mb-4 text-xl font-semibold text-foreground">Add New Item</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="lg:col-span-2">
             <Label htmlFor="itemName" className="text-sm font-medium">Item Name</Label>
             <Input
               id="itemName"
               type="text"
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="e.g., Basmati Rice"
+              placeholder="e.g., Basmati Rice or scan barcode"
               className="mt-1"
             />
           </div>
@@ -153,11 +231,52 @@ export default function PantryManagerClient() {
               className="mt-1"
             />
           </div>
-          <Button onClick={handleAddItem} className="mt-auto sm:mt-7 self-end lg:col-span-1">
-            <PlusCircle className="mr-2 h-5 w-5" /> Add Item
-          </Button>
+          <div className="flex space-x-2 mt-auto sm:mt-7 self-end lg:col-span-1">
+            <Button onClick={() => setIsScannerOpen(true)} variant="outline" size="icon" aria-label="Scan Barcode">
+              <ScanBarcode className="h-5 w-5" />
+            </Button>
+            <Button onClick={handleAddItem} className="flex-grow">
+              <PlusCircle className="mr-2 h-5 w-5" /> Add
+            </Button>
+          </div>
         </div>
       </GlassCard>
+
+      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-[480px] bg-background/90 backdrop-blur-md">
+          <DialogHeader>
+            <DialogTitle>Scan Barcode</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            {scannerError && (
+              <Alert variant="destructive" className="mb-4">
+                <VideoOff className="h-4 w-4" />
+                <AlertTitle>Scanner Error</AlertTitle>
+                <AlertDescription>{scannerError}</AlertDescription>
+              </Alert>
+            )}
+            {hasCameraPermission === null && !scannerError && (
+                <div className="flex flex-col items-center justify-center h-48">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
+                    <p className="text-muted-foreground">Initializing camera...</p>
+                </div>
+            )}
+            <video ref={videoRef} className={cn("w-full aspect-video rounded-md bg-muted", {"hidden": hasCameraPermission === false || scannerError })} autoPlay muted playsInline />
+            {hasCameraPermission === false && !scannerError && (
+              <Alert variant="destructive">
+                <VideoOff className="h-4 w-4" />
+                <AlertTitle>Camera Access Required</AlertTitle>
+                <AlertDescription>
+                  Please allow camera access in your browser to use the barcode scanner. If you've denied it, you may need to reset permissions in your browser settings for this site.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <GlassCard>
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
@@ -246,5 +365,3 @@ export default function PantryManagerClient() {
     </div>
   );
 }
-
-    
