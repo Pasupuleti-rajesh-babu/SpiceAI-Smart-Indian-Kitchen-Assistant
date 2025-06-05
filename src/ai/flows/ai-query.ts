@@ -2,7 +2,7 @@
 'use server';
 
 /**
- * @fileOverview AI recipe query flow that translates natural language queries into recipe suggestions, considering cuisine preferences.
+ * @fileOverview AI recipe query flow that translates natural language queries into a detailed recipe suggestion, considering cuisine preferences.
  *
  * - aiRecipeQuery - A function that handles the recipe query process.
  * - AiRecipeQueryInput - The input type for the aiRecipeQuery function.
@@ -22,9 +22,12 @@ const AiRecipeQueryInputSchema = z.object({
 export type AiRecipeQueryInput = z.infer<typeof AiRecipeQueryInputSchema>;
 
 const AiRecipeQueryOutputSchema = z.object({
-  recipeSuggestions: z
-    .array(z.string())
-    .describe('A list of recipe suggestions based on the query.'),
+  recipeName: z.string().describe('The name of the suggested recipe.'),
+  ingredients: z.string().describe('The ingredients required for the recipe, formatted as a list (e.g., item 1\\nitem 2).'),
+  instructions: z
+    .string()
+    .describe('Step-by-step instructions to prepare the recipe, formatted as a list (e.g., step 1\\nstep 2).'),
+  reason: z.string().optional().describe('Explanation of why this recipe is a good match for the query.'),
 });
 export type AiRecipeQueryOutput = z.infer<typeof AiRecipeQueryOutputSchema>;
 
@@ -36,19 +39,20 @@ const prompt = ai.definePrompt({
   name: 'aiRecipeQueryPrompt',
   input: {schema: AiRecipeQueryInputSchema},
   output: {schema: AiRecipeQueryOutputSchema},
-  prompt: `You are a helpful assistant that suggests Indian recipes based on user queries.
+  prompt: `You are a helpful assistant that provides a detailed Indian recipe based on a user's query.
 
   The user query is: {{{query}}}
 
   {{#if cuisinePreferences.length}}
   The user has also specified preferred Indian cuisines: {{#each cuisinePreferences}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}.
-  Please try to suggest recipes that align with these preferences.
+  Please try to suggest a recipe that aligns with these preferences.
   {{else}}
-  The user has not specified any particular Indian cuisine preferences.
+  The user has not specified any particular Indian cuisine preferences, so suggest a general Indian recipe.
   {{/if}}
 
-  Suggest Indian recipes that satisfy the query. Return a list of recipe suggestions.
-  Consider dietary restrictions and the number of people when suggesting recipes.`,
+  Based on the query, suggest the single best matching Indian recipe.
+  Provide the recipeName, a list of ingredients (each on a new line), step-by-step instructions (each on a new line), and optionally, a brief reason why this recipe fits the query.
+  Consider dietary restrictions and the number of people mentioned in the query when suggesting the recipe.`,
 });
 
 const aiRecipeQueryFlow = ai.defineFlow(
@@ -62,4 +66,3 @@ const aiRecipeQueryFlow = ai.defineFlow(
     return output!;
   }
 );
-
