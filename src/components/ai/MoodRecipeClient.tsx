@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChefHat, Sparkles, Send, Loader2 } from 'lucide-react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
+import { APP_SETTINGS_KEY, AI_MOOD_RECIPE_RESULT_KEY } from '@/lib/localStorageKeys';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
 
@@ -22,7 +22,7 @@ const moodOptions = ["Happy", "Sad", "Stressed", "Tired", "Energetic", "Adventur
 export default function MoodRecipeClient() {
   const [mood, setMood] = useState('');
   const [customMood, setCustomMood] = useState('');
-  const [generatedRecipe, setGeneratedRecipe] = useState<Recipe | null>(null);
+  const [generatedRecipe, setGeneratedRecipe] = useLocalStorage<Recipe | null>(AI_MOOD_RECIPE_RESULT_KEY, null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [settings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
@@ -41,7 +41,7 @@ export default function MoodRecipeClient() {
       return;
     }
     setIsLoading(true);
-    setGeneratedRecipe(null);
+    setGeneratedRecipe(null); // Clear previous result before fetching new one
     try {
       const input: MoodBasedRecipeInput = { 
         mood: effectiveMood,
@@ -124,3 +124,4 @@ export default function MoodRecipeClient() {
     </AiFeatureCard>
   );
 }
+

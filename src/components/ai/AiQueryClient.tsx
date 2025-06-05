@@ -12,13 +12,13 @@ import { aiRecipeQuery, type AiRecipeQueryInput, type AiRecipeQueryOutput } from
 import { useToast } from "@/hooks/use-toast";
 import { FileQuestion, Sparkles, Send, Loader2 } from 'lucide-react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
+import { APP_SETTINGS_KEY, AI_QUERY_RESULT_KEY } from '@/lib/localStorageKeys';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
 
 export default function AiQueryClient() {
   const [query, setQuery] = useState('');
-  const [generatedRecipe, setGeneratedRecipe] = useState<Recipe | null>(null);
+  const [generatedRecipe, setGeneratedRecipe] = useLocalStorage<Recipe | null>(AI_QUERY_RESULT_KEY, null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [settings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
@@ -35,7 +35,7 @@ export default function AiQueryClient() {
       return;
     }
     setIsLoading(true);
-    setGeneratedRecipe(null);
+    setGeneratedRecipe(null); // Clear previous result before fetching new one
     try {
       const input: AiRecipeQueryInput = {
         query,
@@ -103,3 +103,4 @@ export default function AiQueryClient() {
     </AiFeatureCard>
   );
 }
+

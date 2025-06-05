@@ -12,7 +12,7 @@ import type { Recipe } from '@/types/recipe';
 import { aiIngredientSubstitution, type AiIngredientSubstitutionInput } from '@/ai/flows/ai-substitution';
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
+import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY, AI_SUBSTITUTION_RESULT_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
@@ -23,7 +23,7 @@ export default function AiSubstitutionClient() {
   const [healthGoals, setHealthGoals] = useState('');
   const [budget, setBudget] = useState('');
   
-  const [generatedSubstitution, setGeneratedSubstitution] = useState<Recipe | null>(null);
+  const [generatedSubstitution, setGeneratedSubstitution] = useLocalStorage<Recipe | null>(AI_SUBSTITUTION_RESULT_KEY, null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [hasMounted, setHasMounted] = useState(false);
@@ -42,7 +42,7 @@ export default function AiSubstitutionClient() {
       return;
     }
     setIsLoading(true);
-    setGeneratedSubstitution(null);
+    setGeneratedSubstitution(null); // Clear previous result before fetching new one
     try {
       const pantryContents = storedPantryItems.map(item => item.name).join(', ');
       const dietaryRestrictions = settings.allergies.join(', ');
@@ -141,3 +141,4 @@ export default function AiSubstitutionClient() {
     </AiFeatureCard>
   );
 }
+
