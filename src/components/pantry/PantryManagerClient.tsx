@@ -13,6 +13,7 @@ import { PlusCircle, Edit2, Trash2, CalendarDays, AlertTriangle, CheckCircle, Pa
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
+import { cn } from '@/lib/utils';
 
 export default function PantryManagerClient() {
   const [pantryItems, setPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
