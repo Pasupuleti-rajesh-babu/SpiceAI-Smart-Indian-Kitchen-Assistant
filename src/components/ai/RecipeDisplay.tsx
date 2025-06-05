@@ -85,7 +85,7 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
 
       {reason && (
         <div className="mb-4 rounded-md border border-accent/50 bg-accent/10 p-3">
-          <p className="text-sm text-accent-foreground"><Sparkles className="mr-2 inline h-4 w-4" />{reason}</p>
+          <p className="text-sm text-accent-foreground dark:text-foreground"><Sparkles className="mr-2 inline h-4 w-4" />{reason}</p>
         </div>
       )}
 
@@ -239,3 +239,4 @@ function CalendarDaysIcon(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
