@@ -1,7 +1,8 @@
+
 'use server';
 
 /**
- * @fileOverview AI recipe query flow that translates natural language queries into recipe suggestions.
+ * @fileOverview AI recipe query flow that translates natural language queries into recipe suggestions, considering cuisine preferences.
  *
  * - aiRecipeQuery - A function that handles the recipe query process.
  * - AiRecipeQueryInput - The input type for the aiRecipeQuery function.
@@ -13,6 +14,10 @@ import {z} from 'genkit';
 
 const AiRecipeQueryInputSchema = z.object({
   query: z.string().describe('A natural language query for a recipe, e.g., \'Dinner for 4 with no onion-garlic\'.'),
+  cuisinePreferences: z
+    .array(z.string())
+    .optional()
+    .describe('Optional list of preferred Indian cuisines, e.g., ["South Indian", "Punjabi"].'),
 });
 export type AiRecipeQueryInput = z.infer<typeof AiRecipeQueryInputSchema>;
 
@@ -31,11 +36,18 @@ const prompt = ai.definePrompt({
   name: 'aiRecipeQueryPrompt',
   input: {schema: AiRecipeQueryInputSchema},
   output: {schema: AiRecipeQueryOutputSchema},
-  prompt: `You are a helpful assistant that suggests recipes based on user queries.
+  prompt: `You are a helpful assistant that suggests Indian recipes based on user queries.
 
   The user query is: {{{query}}}
 
-  Suggest recipes that satisfy the query. Return a list of recipe suggestions.
+  {{#if cuisinePreferences.length}}
+  The user has also specified preferred Indian cuisines: {{#each cuisinePreferences}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}.
+  Please try to suggest recipes that align with these preferences.
+  {{else}}
+  The user has not specified any particular Indian cuisine preferences.
+  {{/if}}
+
+  Suggest Indian recipes that satisfy the query. Return a list of recipe suggestions.
   Consider dietary restrictions and the number of people when suggesting recipes.`,
 });
 
@@ -50,3 +62,4 @@ const aiRecipeQueryFlow = ai.defineFlow(
     return output!;
   }
 );
+
