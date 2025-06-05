@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
 import type { AppSettings } from '@/types/settings';
@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Save, Sun, Moon } from 'lucide-react';
+import { Save, Sun, Moon, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 
 const availableCuisinePreferences = ['North Indian', 'South Indian', 'Bengali', 'Gujarati', 'Maharashtrian', 'Punjabi', 'Rajasthani', 'Other'];
@@ -21,11 +21,18 @@ const availableLanguages = [{ code: 'en', name: 'English' }, { code: 'hi', name:
 export default function SettingsClient() {
   const [settings, setSettings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
   const { toast } = useToast();
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   // Ensure settings always has all default keys, useful for migrations or new settings
   useEffect(() => {
-    setSettings(prev => ({ ...defaultAppSettings, ...prev }));
-  }, [setSettings]);
+    if (hasMounted) { // Only run this effect if component has mounted and settings are loaded from localStorage
+      setSettings(prev => ({ ...defaultAppSettings, ...prev }));
+    }
+  }, [setSettings, hasMounted]);
 
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -69,6 +76,14 @@ export default function SettingsClient() {
       description: "Your preferences have been updated.",
     });
   };
+
+  if (!hasMounted) {
+    return (
+      <GlassCard className="space-y-8 p-6 md:p-8 flex justify-center items-center min-h-[300px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </GlassCard>
+    );
+  }
 
   return (
     <GlassCard className="space-y-8 p-6 md:p-8">
