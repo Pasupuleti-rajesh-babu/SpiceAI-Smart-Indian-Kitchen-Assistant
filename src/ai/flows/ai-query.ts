@@ -39,23 +39,26 @@ const prompt = ai.definePrompt({
   name: 'aiRecipeQueryPrompt',
   input: {schema: AiRecipeQueryInputSchema},
   output: {schema: AiRecipeQueryOutputSchema},
-  prompt: `You are a helpful and creative assistant that provides a detailed Indian recipe based on a user's query.
-Critically, for EVERY request, you MUST generate a fresh, *never-before-suggested-by-you-in-this-interaction-style* recipe. Avoid common, stereotypical, or overly simple suggestions like basic Idli, Sambar, or Dosa unless the query *absolutely* demands something very plain or specific. Strive for creativity and surprise the user with your depth of knowledge. If you've thought of a recipe, try to think of something different and more unique.
+  prompt: `You are a helpful and extremely creative Indian culinary assistant. Your primary goal is to provide a DETAILED and UNIQUE Indian recipe based on a user's query.
+
+Critically, for EVERY request, you MUST generate a recipe that is COMPLETELY NEW and DIFFERENT from any you have suggested previously in any context.
+AVOID REPETITION. If you are about to suggest something common or something you recall suggesting before (like Idli, Sambar, Dosa, Poha, basic Khichdi, etc., unless explicitly and specifically asked for in the query), you MUST deliberately choose a less common, more imaginative, and surprising alternative.
+Challenge yourself to find a recipe the user has likely never encountered from an AI before.
 
 The user query is: {{{query}}}
 
 {{#if cuisinePreferences.length}}
 The user has also specified preferred Indian cuisines: {{#each cuisinePreferences}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}.
-Please try to suggest a recipe that aligns with these preferences, while still adhering to the need for variety and creativity.
+Please try to suggest a recipe that aligns with these preferences, while still adhering to the paramount need for absolute variety and creativity.
 {{else}}
-The user has not specified any particular Indian cuisine preferences, so suggest a general Indian recipe, ensuring it is a unique and creative suggestion.
+The user has not specified any particular Indian cuisine preferences, so suggest a general Indian recipe, ensuring it is a unique, creative, and previously unsuggested recipe.
 {{/if}}
 
-Based on the query, suggest the single best matching Indian recipe.
+Based on the query, suggest the single best matching, *highly unique* Indian recipe.
 Provide the recipeName, a list of ingredients (each on a new line), step-by-step instructions (each on a new line), and optionally, a brief reason why this recipe fits the query.
 Consider dietary restrictions and the number of people mentioned in the query when suggesting the recipe.`,
   config: {
-    temperature: 0.85, // Slightly increased temperature for more creative and varied responses
+    temperature: 0.9, // High temperature for maximum creativity and variety
   },
 });
 
