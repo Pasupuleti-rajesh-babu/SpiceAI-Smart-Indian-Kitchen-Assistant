@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -38,12 +39,17 @@ const prompt = ai.definePrompt({
   name: 'moodBasedRecipePrompt',
   input: {schema: MoodBasedRecipeInputSchema},
   output: {schema: MoodBasedRecipeOutputSchema},
-  prompt: `You are an AI expert in Indian cuisine. A user will provide their current mood, and you will suggest a comforting Indian recipe that suits their mood. Explain why you are suggesting the recipe.
+  prompt: `You are an AI expert in Indian cuisine. A user will provide their current mood, and you will suggest a comforting Indian recipe that suits their mood.
+Aim to provide a *different and creative* recipe suggestion each time for the same mood if possible.
+Explain why you are suggesting this specific recipe.
 
 Mood: {{{mood}}}
 
-Respond with the recipe name, ingredients, instructions, and a brief explanation of why this recipe is suitable for the given mood.
+Respond with the recipeName, ingredients, instructions, and a brief explanation of why this recipe is suitable for the given mood.
 `,
+  config: {
+    temperature: 0.8, // Increase temperature for more varied responses
+  },
 });
 
 const moodBasedRecipeFlow = ai.defineFlow(
@@ -57,3 +63,4 @@ const moodBasedRecipeFlow = ai.defineFlow(
     return output!;
   }
 );
+
