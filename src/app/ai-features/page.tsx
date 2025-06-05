@@ -71,7 +71,7 @@ export default function AiFeaturesPage() {
         </div>
          <div className="mt-8 text-center">
             <Image 
-              src="https://placehold.co/500x300.png" 
+              src="/ai-coming-soon.png" 
               alt="Future AI features in kitchen" 
               width={500} 
               height={300} 
