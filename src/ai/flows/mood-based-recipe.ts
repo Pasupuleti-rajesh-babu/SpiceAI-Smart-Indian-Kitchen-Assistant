@@ -40,7 +40,7 @@ const prompt = ai.definePrompt({
   input: {schema: MoodBasedRecipeInputSchema},
   output: {schema: MoodBasedRecipeOutputSchema},
   prompt: `You are an AI expert in Indian cuisine. A user will provide their current mood, and you will suggest a comforting Indian recipe that suits their mood.
-Aim to provide a *different and creative* recipe suggestion each time for the same mood if possible.
+Your primary goal is to provide a *NEW and DISTINCT* recipe suggestion for each request. Even if the mood is the same as a previous request, you MUST come up with a *different and creative* recipe. Do not repeat recipes.
 Explain why you are suggesting this specific recipe.
 
 Mood: {{{mood}}}
@@ -48,7 +48,7 @@ Mood: {{{mood}}}
 Respond with the recipeName, ingredients, instructions, and a brief explanation of why this recipe is suitable for the given mood.
 `,
   config: {
-    temperature: 0.8, // Increase temperature for more varied responses
+    temperature: 0.8, // Keep temperature for variety
   },
 });
 
