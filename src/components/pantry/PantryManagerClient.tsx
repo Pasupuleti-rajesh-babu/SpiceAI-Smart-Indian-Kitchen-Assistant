@@ -51,7 +51,7 @@ export default function PantryManagerClient() {
     }
   }, []);
 
-  const cleanupScannerResources = useCallback(() => {
+  const cleanupScanner = useCallback(() => {
     if (controlsRef.current) {
       controlsRef.current.stop();
       controlsRef.current = null;
@@ -70,66 +70,67 @@ export default function PantryManagerClient() {
       toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
       setLastScannedBarcode(null); 
     } else {
-      // For new barcodes, we still set the name field to the barcode value itself.
-      // The user can then overwrite it with the actual item name.
       setNewItemName(scannedValue); 
       toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name.` });
       setLastScannedBarcode(scannedValue); 
     }
-    setIsScannerOpen(false); 
+    setIsScannerOpen(false); // Close dialog on success
   }, [barcodeDb, setNewItemName, setIsScannerOpen, setLastScannedBarcode, toast]);
   
   const handleScanError = useCallback((error: any) => {
     if (error instanceof NotFoundException) {
-      // This error occurs frequently when no barcode is found in the frame, so we can ignore it for UI error messages.
       return; 
     }
     console.error("Barcode scanning error during active scan:", error);
-    // Only set scannerError if the dialog is still intended to be open.
+    // Check if the dialog is still supposed to be open before setting an error.
     const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
-    if (isScannerOpen || dialogStillOpen) {
-      setScannerError("Error during barcode scanning. Try adjusting camera or lighting.");
+    if (isScannerOpen || dialogStillOpen) { // isScannerOpen might be stale here if setIsScannerOpen(false) was just called
+        setScannerError("Error during barcode scanning. Try adjusting camera or lighting.");
     }
   }, [isScannerOpen]);
 
 
   useEffect(() => {
     const codeReader = codeReaderRef.current;
-    const videoElement = videoRef.current;
+    let initTimeoutId: NodeJS.Timeout | null = null;
 
     if (isScannerOpen) {
-      setScannerError(null); 
-      setHasCameraPermission(null); 
+      setScannerError(null);
+      setHasCameraPermission(null); // Reset to loading state
 
-      const initializeCameraAndScanner = async () => {
-        if (!codeReader || !videoElement) {
-          setScannerError("Scanner or video element not ready. Please try reopening the scanner.");
+      initTimeoutId = setTimeout(async () => {
+        const videoElement = videoRef.current;
+        if (!videoElement || !codeReader) {
+          setScannerError("Video element or scanner not ready. Please try reopening the scanner.");
           setHasCameraPermission(false);
           return;
         }
-        
+
         try {
-          if (videoElement.srcObject) {
+          if (videoElement.srcObject) { // Clean up any old stream
             (videoElement.srcObject as MediaStream).getTracks().forEach(track => track.stop());
           }
 
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
           videoElement.srcObject = stream;
+          videoElement.muted = true; 
+          videoElement.playsInline = true; 
           
           await videoElement.play();
-          
-          // If play() succeeded, then we have camera permission and stream is active
           setHasCameraPermission(true);
-          setScannerError(null); // Clear any previous errors if we reached this point
+          setScannerError(null); // Clear any previous error
 
-          controlsRef.current = await codeReader.decodeFromVideoElement(
+          controlsRef.current = codeReader.decodeFromVideoElement(
             videoElement,
-            (result: Result | undefined, error: Error | undefined) => {
-               const dialogStillOpenCheck = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
-               if ((!isScannerOpen && !dialogStillOpenCheck) || !document.body.contains(videoElement)) {
-                cleanupScannerResources(); 
-                return;
-              }
+            (result, error) => {
+              const dialogStillOpenCheck = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
+               if ((!isScannerOpen && !dialogStillOpenCheck)) {
+                 // If dialog was closed while scanner was active, cleanup should have been called by main effect return or onOpenChange
+                 return;
+               }
+               if (!document.body.contains(videoElement)) { // If video element is detached
+                 return;
+               }
 
               if (result) {
                 handleScanSuccess(result.getText());
@@ -138,30 +139,28 @@ export default function PantryManagerClient() {
               }
             }
           );
-        } catch (error: any) {
-          console.error('Error initializing camera/scanner:', error);
+        } catch (err: any) {
+          console.error('Error initializing camera/scanner:', err);
           let message = 'Could not initialize camera. Ensure permissions are granted and no other app is using it.';
-          if (error.name === "NotAllowedError") message = "Camera permission denied. Please enable it in your browser settings.";
-          else if (error.name === "NotFoundError") message = "No camera found. Ensure a camera is connected.";
-          else if (error.name === "NotReadableError") message = "Camera is currently in use by another application or there might be a hardware issue.";
-          else if (error.message && typeof error.message === 'string' && error.message.length < 100) message = error.message; // Use specific short error messages
+          if (err.name === "NotAllowedError") message = "Camera permission denied. Please enable it in your browser settings.";
+          else if (err.name === "NotFoundError") message = "No camera found. Ensure a camera is connected.";
+          else if (err.name === "NotReadableError") message = "Camera is currently in use by another application or there might be a hardware issue.";
+          else if (err.message && typeof err.message === 'string' && err.message.length < 100) message = err.message;
           
           setScannerError(message);
-          setHasCameraPermission(false); // Explicitly set permission to false on error
-          // No need to call cleanupScannerResources here, as the effect's cleanup will handle it
+          setHasCameraPermission(false);
+          cleanupScanner(); // Attempt cleanup on critical init error
         }
-      };
-
-      initializeCameraAndScanner();
-
-    } else { 
-      cleanupScannerResources();
+      }, 100); // 100ms delay to allow DOM to settle
     }
 
-    return () => { 
-      cleanupScannerResources();
+    return () => { // This cleanup runs when isScannerOpen becomes false, or when component unmounts
+      if (initTimeoutId) {
+        clearTimeout(initTimeoutId);
+      }
+      cleanupScanner();
     };
-  }, [isScannerOpen, cleanupScannerResources, handleScanSuccess, handleScanError]);
+  }, [isScannerOpen, handleScanSuccess, handleScanError, cleanupScanner]);
 
 
   const handleAddItem = () => {
@@ -185,7 +184,7 @@ export default function PantryManagerClient() {
     if (capturedLastScannedBarcode && currentNewItemName !== capturedLastScannedBarcode) {
       setBarcodeDb(prevDb => ({ ...prevDb, [capturedLastScannedBarcode]: currentNewItemName }));
       toast({ title: "Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${capturedLastScannedBarcode}.`, variant: "default" });
-    } else {
+    } else if (!capturedLastScannedBarcode) {
       toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
     }
     
@@ -232,7 +231,7 @@ export default function PantryManagerClient() {
     if (!isValid(date)) return { text: 'Invalid date', icon: AlertTriangle, color: 'text-yellow-500' };
     
     const today = new Date();
-    today.setHours(0,0,0,0); // Normalize today to start of day for consistent diff
+    today.setHours(0,0,0,0); 
     const daysLeft = differenceInDays(date, today);
 
     if (daysLeft < 0) return { text: `Expired ${Math.abs(daysLeft)} days ago`, icon: AlertTriangle, color: 'text-red-600 font-semibold' };
@@ -243,24 +242,22 @@ export default function PantryManagerClient() {
   const filteredItems = pantryItems
     .filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
-      const aDate = a.expiryDate ? parseISO(a.expiryDate) : new Date(8640000000000000); // Far future for no expiry
-      const bDate = b.expiryDate ? parseISO(b.expiryDate) : new Date(8640000000000000); // Far future for no expiry
+      const aDate = a.expiryDate ? parseISO(a.expiryDate) : new Date(8640000000000000); 
+      const bDate = b.expiryDate ? parseISO(b.expiryDate) : new Date(8640000000000000); 
       
-      // Handle invalid dates by pushing them to the bottom
       const aIsValid = isValid(aDate);
       const bIsValid = isValid(bDate);
 
-      if (aIsValid && !bIsValid) return -1; // Valid dates first
-      if (!aIsValid && bIsValid) return 1;  // Invalid dates last
-      if (!aIsValid && !bIsValid) return 0; // Both invalid, keep order
+      if (aIsValid && !bIsValid) return -1; 
+      if (!aIsValid && bIsValid) return 1;  
+      if (!aIsValid && !bIsValid) return 0; 
 
-      return differenceInDays(aDate, bDate); // Sort by actual date difference
+      return differenceInDays(aDate, bDate); 
     });
 
   useEffect(() => {
     if (lastScannedBarcode && newItemName !== lastScannedBarcode && newItemName !== barcodeDb[lastScannedBarcode]) {
-        // This effect is mostly for potential future logic if needed.
-        // For now, the main logic for associating name with barcode happens in handleAddItem.
+        // Logic for associating name with barcode happens in handleAddItem.
     }
   }, [newItemName, lastScannedBarcode, barcodeDb]);
 
@@ -272,186 +269,5 @@ export default function PantryManagerClient() {
       </GlassCard>
     );
   }
-
-  return (
-    <div className="space-y-8">
-      <GlassCard>
-        <h2 className="mb-4 text-xl font-semibold text-foreground">Add New Item</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
-            <Label htmlFor="itemName" className="text-sm font-medium">Item Name</Label>
-            <Input
-              id="itemName"
-              type="text"
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="e.g., Basmati Rice or scan barcode"
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label htmlFor="itemQuantity" className="text-sm font-medium">Quantity</Label>
-            <Input
-              id="itemQuantity"
-              type="text"
-              value={newItemQuantity}
-              onChange={(e) => setNewItemQuantity(e.target.value)}
-              placeholder="e.g., 1 kg, 2 cans"
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label htmlFor="itemExpiry" className="text-sm font-medium">Expiry Date (Optional)</Label>
-            <Input
-              id="itemExpiry"
-              type="date"
-              value={newItemExpiryDate}
-              onChange={(e) => setNewItemExpiryDate(e.target.value)}
-              className="mt-1"
-            />
-          </div>
-          <div className="flex space-x-2 mt-auto sm:mt-7 self-end lg:col-span-1">
-            <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="Scan Barcode">
-                  <ScanBarcode className="h-5 w-5" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[480px] bg-background/90 backdrop-blur-md">
-                <DialogHeader>
-                  <DialogTitle>Scan Barcode</DialogTitle>
-                </DialogHeader>
-                <div className="py-4">
-                  {/* Video element is ALWAYS rendered if dialog is open to ensure zxing can attach */}
-                  <video 
-                    ref={videoRef} 
-                    className="w-full aspect-video rounded-md bg-muted" // bg-muted will show if stream not loaded
-                    muted 
-                    playsInline 
-                  />
-                  {/* Conditional rendering for loading/error states OVER the video area */}
-                  {hasCameraPermission === null && !scannerError && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/70">
-                          <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                          <p className="text-muted-foreground">Initializing camera...</p>
-                      </div>
-                  )}
-                  {scannerError && ( 
-                    <Alert variant="destructive" className="mt-2">
-                      <VideoOff className="h-4 w-4" />
-                      <AlertTitle>Scanner Error</AlertTitle>
-                      <AlertDescription>{scannerError}</AlertDescription>
-                    </Alert>
-                  )}
-                  {hasCameraPermission === false && !scannerError && ( // Show if explicitly denied and no other error displayed
-                    <Alert variant="destructive" className="mt-2">
-                      <VideoOff className="h-4 w-4" />
-                      <AlertTitle>Camera Access Required</AlertTitle>
-                      <AlertDescription>
-                        Camera permission was denied or a camera could not be found. Please check your browser settings.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </div>
-                <DialogFooter>
-                  <DialogClose asChild>
-                    <Button variant="outline">Cancel</Button>
-                  </DialogClose>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <Button onClick={handleAddItem} className="flex-grow">
-              <PlusCircle className="mr-2 h-5 w-5" /> Add
-            </Button>
-          </div>
-        </div>
-      </GlassCard>
-
-      <GlassCard>
-        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-xl font-semibold text-foreground">Your Pantry Items</h2>
-            <Input 
-                type="search"
-                placeholder="Search items..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="mt-2 sm:mt-0 sm:w-64"
-            />
-        </div>
-        {filteredItems.length === 0 ? (
-          <div className="py-10 text-center text-muted-foreground">
-            <PackageSearch className="mx-auto mb-2 h-12 w-12" />
-            <p>Your pantry is empty or no items match your search.</p>
-            <p>Add some items using the form above!</p>
-          </div>
-        ) : (
-          <ul className="space-y-4">
-            {filteredItems.map((item) => {
-              const expiryStatus = getExpiryStatus(item.expiryDate);
-              return (
-                <li
-                  key={item.id}
-                  className="rounded-lg border border-border/70 bg-background/50 p-4 shadow-sm transition-all hover:shadow-md dark:bg-neutral-800/50"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium text-primary">{item.name}</h3>
-                      <p className="text-sm text-foreground/80">Quantity: {item.quantity}</p>
-                      <div className="mt-1 flex items-center text-sm">
-                        {expiryStatus.icon && <expiryStatus.icon className={cn("mr-1.5 h-4 w-4", expiryStatus.color)} />}
-                        <span className={cn(expiryStatus.color)}>{expiryStatus.text}</span>
-                      </div>
-                       <p className="text-xs text-muted-foreground mt-1">Added: {format(parseISO(item.addedDate), 'MMM dd, yyyy')}</p>
-                    </div>
-                    <div className="mt-3 space-x-2 sm:mt-0">
-                       <Dialog>
-                        <DialogTrigger asChild>
-                           <Button variant="outline" size="sm" onClick={() => handleStartEdit(item)}>
-                            <Edit2 className="mr-1 h-4 w-4" /> Edit
-                          </Button>
-                        </DialogTrigger>
-                        {editingItem && editingItem.id === item.id && (
-                           <DialogContent className="sm:max-w-[425px] bg-background/90 backdrop-blur-md">
-                             <DialogHeader>
-                               <DialogTitle>Edit {editingItem.name}</DialogTitle>
-                             </DialogHeader>
-                             <div className="grid gap-4 py-4">
-                               <div>
-                                 <Label htmlFor="editItemName" className="text-right">Name</Label>
-                                 <Input id="editItemName" value={editItemName} onChange={(e) => setEditItemName(e.target.value)} className="col-span-3" />
-                               </div>
-                               <div>
-                                 <Label htmlFor="editItemQuantity" className="text-right">Quantity</Label>
-                                 <Input id="editItemQuantity" value={editItemQuantity} onChange={(e) => setEditItemQuantity(e.target.value)} className="col-span-3" />
-                               </div>
-                               <div>
-                                 <Label htmlFor="editItemExpiry" className="text-right">Expiry Date</Label>
-                                 <Input id="editItemExpiry" type="date" value={editItemExpiryDate} onChange={(e) => setEditItemExpiryDate(e.target.value)} className="col-span-3" />
-                               </div>
-                             </div>
-                             <DialogFooter>
-                               <DialogClose asChild>
-                                 <Button type="button" variant="outline">Cancel</Button>
-                               </DialogClose>
-                               <DialogClose asChild>
-                                <Button type="submit" onClick={handleSaveEdit}>Save changes</Button>
-                               </DialogClose>
-                             </DialogFooter>
-                           </DialogContent>
-                         )}
-                       </Dialog>
-                      <Button variant="destructive" size="sm" onClick={() => handleDeleteItem(item.id)}>
-                        <Trash2 className="mr-1 h-4 w-4" /> Delete
-                      </Button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </GlassCard>
-    </div>
-  );
-}
-    
+  
+  const handleDialogOpe<ctrl63>
