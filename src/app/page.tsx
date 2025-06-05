@@ -11,12 +11,12 @@ export default function HomePage() {
     <div className="container mx-auto min-h-screen px-4 py-8 md:py-12">
       <header className="mb-12 text-center">
         <Image 
-          src="https://placehold.co/120x120.png" 
+          src="/logo.png" 
           alt="SpiceAI Logo" 
           width={100} 
           height={100} 
           className="mx-auto mb-4 rounded-full shadow-ios-medium"
-          data-ai-hint="spices logo" 
+          data-ai-hint="chef chili" 
         />
         <h1 className="text-4xl font-bold tracking-tight text-primary sm:text-5xl md:text-6xl">
           SpiceAI
@@ -102,4 +102,3 @@ function ActionCard({ href, icon: Icon, title, description, color }: ActionCardP
     </Link>
   );
 }
-
