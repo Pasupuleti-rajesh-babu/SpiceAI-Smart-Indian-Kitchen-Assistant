@@ -29,10 +29,30 @@ export default function SettingsClient() {
 
   // Ensure settings always has all default keys, useful for migrations or new settings
   useEffect(() => {
-    if (hasMounted) { // Only run this effect if component has mounted and settings are loaded from localStorage
-      setSettings(prev => ({ ...defaultAppSettings, ...prev }));
+    if (hasMounted) {
+      setSettings(prevSettings => {
+        let changed = false;
+        // Create a new object for modification to avoid mutating prevSettings if it's returned
+        const newMergedSettings = { ...prevSettings }; 
+
+        // Check and apply defaults
+        for (const key of Object.keys(defaultAppSettings)) {
+          const K = key as keyof AppSettings;
+          if (!(K in newMergedSettings) || newMergedSettings[K] === undefined) {
+            (newMergedSettings[K] as AppSettings[keyof AppSettings]) = defaultAppSettings[K];
+            changed = true;
+          }
+        }
+        
+        // If no defaults were merged, return the original prevSettings object reference
+        // This is crucial to prevent re-render loops if setSettings is a dependency
+        if (!changed) {
+          return prevSettings; 
+        }
+        return newMergedSettings;
+      });
     }
-  }, [setSettings, hasMounted]);
+  }, [hasMounted, setSettings]);
 
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -192,3 +212,4 @@ export default function SettingsClient() {
     </GlassCard>
   );
 }
+
