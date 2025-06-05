@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -23,8 +24,15 @@ const AiMealPlannerInputSchema = z.object({
 });
 export type AiMealPlannerInput = z.infer<typeof AiMealPlannerInputSchema>;
 
+const DailyMealPlanSchema = z.object({
+  day: z.string().describe("Day of the week (e.g., Monday)"),
+  breakfast: z.string().describe("Breakfast meal for the day"),
+  lunch: z.string().describe("Lunch meal for the day"),
+  dinner: z.string().describe("Dinner meal for the day"),
+});
+
 const AiMealPlannerOutputSchema = z.object({
-  mealPlan: z.string().describe('A 7-day Indian meal plan.'),
+  mealPlan: z.array(DailyMealPlanSchema).describe('A 7-day Indian meal plan, structured as an array of objects, where each object represents a day and contains breakfast, lunch, and dinner. Example: [{"day": "Monday", "breakfast": "Meal A", "lunch": "Meal B", "dinner": "Meal C"}, ...]'),
 });
 export type AiMealPlannerOutput = z.infer<typeof AiMealPlannerOutputSchema>;
 
@@ -38,12 +46,16 @@ const mealPlanPrompt = ai.definePrompt({
   output: {schema: AiMealPlannerOutputSchema},
   prompt: `You are a personal Indian meal planning assistant.
 
-  Based on the user's pantry contents and dietary goals, generate a 7-day Indian meal plan. Consider smart ingredient substitutions based on availability and dietary needs.  The meal plan should be easy to follow. Do not add any conversational text.  The response should be well formatted.
+Based on the user's pantry contents and dietary goals, generate a 7-day Indian meal plan.
+Consider smart ingredient substitutions based on availability and dietary needs.
+The meal plan should be easy to follow.
 
 Pantry Contents: {{{pantryContents}}}
 Dietary Goals: {{{dietaryGoals}}}
 
-7-Day Indian Meal Plan:`,
+Respond *only* with a JSON array, where each element is an object representing a day. Each day object must have the following string properties: "day", "breakfast", "lunch", and "dinner".
+For example: [{"day": "Monday", "breakfast": "Poha", "lunch": "Rajma Chawal", "dinner": "Palak Paneer with Roti"}, ...]
+Do not include any conversational text, introductory phrases, explanations, or markdown formatting like \`\`\`json ... \`\`\` outside of the JSON structure itself. The entire response should be the JSON array.`,
 });
 
 const aiMealPlannerFlow = ai.defineFlow(

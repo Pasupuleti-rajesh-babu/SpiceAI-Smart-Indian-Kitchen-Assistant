@@ -1,4 +1,11 @@
 
+export interface DailyMealPlan {
+  day: string;
+  breakfast: string;
+  lunch: string;
+  dinner: string;
+}
+
 export interface Recipe {
   recipeName: string;
   ingredients: string; // This is a single string from AI, needs parsing/formatting
@@ -11,6 +18,6 @@ export interface Recipe {
   isBudgetFriendly?: boolean;
   // For AI Query Output
   recipeSuggestions?: string[];
-  // For AI Meal Planner Output
-  mealPlan?: string; // This is a single string for the 7-day plan
+  // For AI Meal Planner Output - now structured
+  dailyMealPlans?: DailyMealPlan[];
 }

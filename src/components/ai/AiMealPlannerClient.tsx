@@ -41,11 +41,11 @@ export default function AiMealPlannerClient() {
     try {
       const input: AiMealPlannerInput = { pantryContents, dietaryGoals };
       const result = await aiMealPlanner(input);
-      setGeneratedPlan({ 
-        recipeName: '', // Not applicable for meal plan
-        ingredients: '', // Not applicable
-        instructions: '', // Not applicable
-        mealPlan: result.mealPlan 
+      setGeneratedPlan({
+        recipeName: '', 
+        ingredients: '', 
+        instructions: '', 
+        dailyMealPlans: result.mealPlan // result.mealPlan is now an array of DailyMealPlan
       });
       toast({ title: "Meal Plan Generated!", description: "Your 7-day Indian meal plan is ready.", variant: "default" });
     } catch (error) {

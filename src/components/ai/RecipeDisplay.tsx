@@ -1,9 +1,10 @@
 
 import React from 'react';
-import type { Recipe } from '@/types/recipe';
+import type { Recipe, DailyMealPlan } from '@/types/recipe';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Utensils, ListChecks, AlertTriangle, Sparkles, BarChart3, Leaf, CircleDollarSign } from 'lucide-react';
+import { Utensils, ListChecks, AlertTriangle, Sparkles, BarChart3, Leaf } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface RecipeDisplayProps {
   recipe: Recipe | null;
@@ -40,7 +41,7 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
     return null;
   }
 
-  const { recipeName, ingredients, instructions, reason, substituteIngredient, reasoning, isHealthy, isBudgetFriendly, recipeSuggestions, mealPlan } = recipe;
+  const { recipeName, ingredients, instructions, reason, substituteIngredient, reasoning, isHealthy, isBudgetFriendly, recipeSuggestions, dailyMealPlans } = recipe;
 
   return (
     <GlassCard className="mt-6">
@@ -97,21 +98,40 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
         </div>
       )}
 
-      {mealPlan && (
+      {dailyMealPlans && dailyMealPlans.length > 0 && (
          <div className="mb-4">
-           <h3 className="mb-2 flex items-center text-lg font-medium text-foreground">
+           <h3 className="mb-3 flex items-center text-lg font-medium text-foreground">
             <CalendarDays className="mr-2 h-5 w-5 text-indigo-500" /> Your 7-Day Meal Plan
           </h3>
-          <div className="prose prose-sm max-w-none dark:prose-invert text-foreground/90">
-            {formatMultilineText(mealPlan).map((line, index) => (
-              <p key={index} className={line.match(/^Day \d+:/) ? 'font-semibold mt-2' : ''}>{line}</p>
+          <Accordion type="single" collapsible className="w-full">
+            {dailyMealPlans.map((item, index) => (
+              <AccordionItem value={`day-${index}`} key={index}>
+                <AccordionTrigger className="hover:no-underline text-left">
+                  <span className="font-semibold text-primary">{item.day}</span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-3 pl-2 pt-2 text-sm text-foreground/90">
+                    <div>
+                      <p className="font-medium text-foreground/95">Breakfast:</p>
+                      <p>{item.breakfast}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground/95">Lunch:</p>
+                      <p>{item.lunch}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground/95">Dinner:</p>
+                      <p>{item.dinner}</p>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
             ))}
-          </div>
+          </Accordion>
         </div>
       )}
 
-
-      {ingredients && !recipeSuggestions && !mealPlan && (
+      {ingredients && !recipeSuggestions && !dailyMealPlans && (
         <div className="mb-4">
           <h3 className="mb-2 flex items-center text-lg font-medium text-foreground">
             <ListChecks className="mr-2 h-5 w-5 text-blue-500" /> Ingredients
@@ -124,7 +144,7 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
         </div>
       )}
 
-      {instructions && !recipeSuggestions && !mealPlan && (
+      {instructions && !recipeSuggestions && !dailyMealPlans && (
         <div>
           <h3 className="mb-2 flex items-center text-lg font-medium text-foreground">
             <Sparkles className="mr-2 h-5 w-5 text-yellow-500" /> Instructions
@@ -137,7 +157,7 @@ export default function RecipeDisplay({ recipe, isLoading, title = "AI Generated
         </div>
       )}
 
-      {!ingredients && !instructions && !substituteIngredient && (!recipeSuggestions || recipeSuggestions.length === 0) && !mealPlan && (
+      {!ingredients && !instructions && !substituteIngredient && (!recipeSuggestions || recipeSuggestions.length === 0) && (!dailyMealPlans || dailyMealPlans.length === 0) && (
         <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
           <AlertTriangle className="mb-2 h-10 w-10" />
           <p>No recipe details found or AI response format is unexpected.</p>
