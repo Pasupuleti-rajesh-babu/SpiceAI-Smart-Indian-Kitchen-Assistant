@@ -20,11 +20,11 @@ export default function AiFeaturesPage() {
       </header>
 
       <Tabs defaultValue="meal-planner" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-6">
-          <TabsTrigger value="meal-planner" className="text-xs sm:text-sm"><CalendarHeart className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Meal Planner</TabsTrigger>
-          <TabsTrigger value="substitution" className="text-xs sm:text-sm"><Replace className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Substitutions</TabsTrigger>
-          <TabsTrigger value="ai-query" className="text-xs sm:text-sm"><FileQuestion className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />AI Query</TabsTrigger>
-          <TabsTrigger value="mood-recipes" className="text-xs sm:text-sm"><ChefHat className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Mood Recipes</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-2 gap-2 mb-6 md:grid-cols-4">
+          <TabsTrigger value="meal-planner" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><CalendarHeart className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Meal Planner</TabsTrigger>
+          <TabsTrigger value="substitution" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><Replace className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Substitutions</TabsTrigger>
+          <TabsTrigger value="ai-query" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><FileQuestion className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />AI Query</TabsTrigger>
+          <TabsTrigger value="mood-recipes" className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5"><ChefHat className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />Mood Recipes</TabsTrigger>
         </TabsList>
 
         <TabsContent value="meal-planner">
