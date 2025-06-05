@@ -37,94 +37,115 @@ export default function PantryManagerClient() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserCodeReader | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const initializationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const activeStreamRef = useRef<MediaStream | null>(null);
+
 
   useEffect(() => {
     setHasMounted(true);
-    codeReaderRef.current = new BrowserCodeReader();
+    if (!codeReaderRef.current) {
+      codeReaderRef.current = new BrowserCodeReader();
+    }
   }, []);
 
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    const currentCodeReader = codeReaderRef.current;
-    const currentVideoElement = videoRef.current;
+  const cleanupScannerResources = useCallback(() => {
+    if (initializationTimerRef.current) {
+      clearTimeout(initializationTimerRef.current);
+      initializationTimerRef.current = null;
+    }
+    if (codeReaderRef.current) {
+      codeReaderRef.current.reset();
+    }
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(track => track.stop());
+      activeStreamRef.current = null;
+    }
+    if (videoRef.current && videoRef.current.srcObject) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
 
-    const cleanupScanner = () => {
-      if (currentCodeReader) {
-        currentCodeReader.reset();
+
+  useEffect(() => {
+    const codeReader = codeReaderRef.current;
+
+    const initializeCameraAndScanner = async () => {
+      const videoElement = videoRef.current;
+
+      if (!codeReader || !videoElement) {
+        setScannerError("Scanner or video element is not ready. Please try reopening the scanner.");
+        setHasCameraPermission(false);
+        return;
       }
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      if (currentVideoElement) {
-        currentVideoElement.srcObject = null;
+      
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        activeStreamRef.current = stream;
+        setHasCameraPermission(true);
+
+        videoElement.srcObject = stream;
+        await videoElement.play(); 
+
+        codeReader.decodeFromVideoElement(videoElement, (result, err) => {
+          // Check if the dialog is still open before processing result or error
+          const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
+          if (!isScannerOpen && !dialogStillOpen && !document.body.contains(videoElement)) { 
+              cleanupScannerResources(); // Ensure cleanup if dialog was closed rapidly
+              return; 
+          }
+
+          if (result) {
+            setNewItemName(result.getText());
+            toast({ title: "Barcode Scanned!", description: `Item: ${result.getText()}` });
+            setIsScannerOpen(false); // This will trigger cleanup via the isScannerOpen effect
+          }
+          if (err && !(err instanceof NotFoundException)) {
+            console.error("Barcode scanning error:", err);
+             if (isScannerOpen || dialogStillOpen) {
+               setScannerError("Error during barcode scanning. Please try again or check camera focus/lighting.");
+             }
+          }
+        });
+
+      } catch (error) {
+        console.error('Error initializing camera/scanner:', error);
+        let message = 'Could not initialize camera. Please ensure permissions are granted and no other app is using it.';
+        if (error instanceof Error) {
+          if (error.name === "NotAllowedError") {
+            message = "Camera permission was denied. Please enable it in your browser settings for this site.";
+          } else if (error.name === "NotFoundError") {
+            message = "No camera was found. Please ensure a camera is connected and enabled.";
+          } else if (error.name === "NotReadableError") {
+            message = "The camera is currently in use by another application or a hardware error occurred.";
+          } else if (error.name === "AbortError" || error.message.includes("play() can only be initiated by a user gesture")) {
+            message = "Could not start video stream. This might be due to browser autoplay policies or camera issues.";
+          }
+        }
+        setScannerError(message);
+        setHasCameraPermission(false);
+        cleanupScannerResources(); 
       }
     };
 
     if (isScannerOpen) {
       setScannerError(null);
       setHasCameraPermission(null); 
+      
+      if (initializationTimerRef.current) {
+        clearTimeout(initializationTimerRef.current);
+      }
+      initializationTimerRef.current = setTimeout(() => {
+        initializeCameraAndScanner();
+      }, 100); // Delay initialization slightly
 
-      const initializeCameraAndScanner = async () => {
-        if (!currentCodeReader || !currentVideoElement) {
-          setScannerError("Scanner or video element is not ready. Please try reopening the scanner.");
-          setHasCameraPermission(false);
-          return;
-        }
-        
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          setHasCameraPermission(true);
-
-          currentVideoElement.srcObject = stream;
-          await currentVideoElement.play(); 
-
-          currentCodeReader.decodeFromVideoElement(currentVideoElement, (result, err) => {
-            const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
-
-            if (!isScannerOpen && !dialogStillOpen) { 
-                return; 
-            }
-
-            if (result) {
-              setNewItemName(result.getText());
-              toast({ title: "Barcode Scanned!", description: `Item: ${result.getText()}` });
-              setIsScannerOpen(false); 
-            }
-            if (err && !(err instanceof NotFoundException)) {
-              console.error("Barcode scanning error:", err);
-               if (isScannerOpen || dialogStillOpen) {
-                 setScannerError("Error during barcode scanning. Please try again or check camera.");
-               }
-            }
-          });
-
-        } catch (error) {
-          console.error('Error initializing camera/scanner:', error);
-          let message = 'Could not initialize camera. Please ensure permissions are granted and no other app is using it.';
-          if (error instanceof Error) {
-            if (error.name === "NotAllowedError") {
-              message = "Camera permission was denied. Please enable it in your browser settings for this site.";
-            } else if (error.name === "NotFoundError") {
-              message = "No camera was found. Please ensure a camera is connected and enabled.";
-            } else if (error.name === "NotReadableError") {
-              message = "The camera is currently in use by another application or a hardware error occurred.";
-            } else if (error.name === "AbortError" || error.message.includes("play() can only be initiated by a user gesture")) {
-              message = "Could not start video stream. This might be due to browser autoplay policies or camera issues.";
-            }
-          }
-          setScannerError(message);
-          setHasCameraPermission(false);
-          cleanupScanner(); 
-        }
-      };
-
-      initializeCameraAndScanner();
     } else {
-      cleanupScanner(); 
+      cleanupScannerResources();
     }
 
-    return cleanupScanner; 
-  }, [isScannerOpen, toast]);
+    return () => { // Main cleanup for the effect itself
+      cleanupScannerResources();
+    };
+  }, [isScannerOpen, toast, cleanupScannerResources]);
 
 
   const handleAddItem = () => {
@@ -280,12 +301,12 @@ export default function PantryManagerClient() {
                     </Alert>
                   )}
 
-                  {hasCameraPermission === false && !scannerError && (
+                  {hasCameraPermission === false && !scannerError && ( // This state now correctly reflects denial or failure
                     <Alert variant="destructive" className="mt-2">
                       <VideoOff className="h-4 w-4" />
-                      <AlertTitle>Camera Access Required</AlertTitle>
+                      <AlertTitle>Camera Access Issue</AlertTitle>
                       <AlertDescription>
-                        Please allow camera access in your browser to use the barcode scanner. You may need to reset permissions in your browser settings for this site.
+                        Camera access was denied or is unavailable. Please check permissions and ensure no other app is using the camera.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -391,5 +412,3 @@ export default function PantryManagerClient() {
     </div>
   );
 }
-
-    
