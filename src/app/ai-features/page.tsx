@@ -20,7 +20,7 @@ export default function AiFeaturesPage() {
       </header>
 
       <Tabs defaultValue="meal-planner" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 gap-1 sm:gap-2 mb-6 md:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 h-auto gap-1 sm:gap-2 mb-6 md:grid-cols-4">
           <TabsTrigger value="meal-planner" className="flex flex-col items-center justify-center text-center text-xs p-1 h-12 whitespace-normal sm:flex-row sm:text-sm sm:whitespace-nowrap sm:px-3 sm:py-1.5 sm:h-10">
             <CalendarHeart className="h-4 w-4 mb-0.5 sm:mr-2 sm:mb-0 sm:h-5 sm:w-5" />
             Meal Planner
