@@ -39,20 +39,24 @@ const prompt = ai.definePrompt({
   name: 'aiRecipeQueryPrompt',
   input: {schema: AiRecipeQueryInputSchema},
   output: {schema: AiRecipeQueryOutputSchema},
-  prompt: `You are a helpful assistant that provides a detailed Indian recipe based on a user's query.
+  prompt: `You are a helpful and creative assistant that provides a detailed Indian recipe based on a user's query.
+Critically, for EVERY request, you MUST generate a fresh, *never-before-suggested-by-you-in-this-interaction-style* recipe. Avoid common, stereotypical, or overly simple suggestions like basic Idli, Sambar, or Dosa unless the query *absolutely* demands something very plain or specific. Strive for creativity and surprise the user with your depth of knowledge. If you've thought of a recipe, try to think of something different and more unique.
 
-  The user query is: {{{query}}}
+The user query is: {{{query}}}
 
-  {{#if cuisinePreferences.length}}
-  The user has also specified preferred Indian cuisines: {{#each cuisinePreferences}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}.
-  Please try to suggest a recipe that aligns with these preferences.
-  {{else}}
-  The user has not specified any particular Indian cuisine preferences, so suggest a general Indian recipe.
-  {{/if}}
+{{#if cuisinePreferences.length}}
+The user has also specified preferred Indian cuisines: {{#each cuisinePreferences}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}.
+Please try to suggest a recipe that aligns with these preferences, while still adhering to the need for variety and creativity.
+{{else}}
+The user has not specified any particular Indian cuisine preferences, so suggest a general Indian recipe, ensuring it is a unique and creative suggestion.
+{{/if}}
 
-  Based on the query, suggest the single best matching Indian recipe.
-  Provide the recipeName, a list of ingredients (each on a new line), step-by-step instructions (each on a new line), and optionally, a brief reason why this recipe fits the query.
-  Consider dietary restrictions and the number of people mentioned in the query when suggesting the recipe.`,
+Based on the query, suggest the single best matching Indian recipe.
+Provide the recipeName, a list of ingredients (each on a new line), step-by-step instructions (each on a new line), and optionally, a brief reason why this recipe fits the query.
+Consider dietary restrictions and the number of people mentioned in the query when suggesting the recipe.`,
+  config: {
+    temperature: 0.85, // Slightly increased temperature for more creative and varied responses
+  },
 });
 
 const aiRecipeQueryFlow = ai.defineFlow(
@@ -66,3 +70,4 @@ const aiRecipeQueryFlow = ai.defineFlow(
     return output!;
   }
 );
+
