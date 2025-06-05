@@ -1,3 +1,4 @@
+
 import type {Config} from 'tailwindcss';
 
 export default {
@@ -10,8 +11,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        body: ['Inter', 'sans-serif'],
-        headline: ['Inter', 'sans-serif'],
+        body: ['PT Sans', 'sans-serif'],
+        headline: ['Playfair Display', 'serif'],
         code: ['monospace'],
       },
       colors: {
@@ -67,9 +68,11 @@ export default {
         },
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        lg: 'var(--radius)', // 0.75rem
+        md: 'calc(var(--radius) - 4px)', // 0.5rem
+        sm: 'calc(var(--radius) - 8px)', // 0.25rem
+        xl: 'calc(var(--radius) + 4px)', // 1rem
+        '2xl': 'calc(var(--radius) + 8px)', // 1.25rem
       },
       keyframes: {
         'accordion-down': {
@@ -93,6 +96,11 @@ export default {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
       },
+      boxShadow: {
+        'ios-subtle': '0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1)',
+        'ios-medium': '0 4px 12px rgba(0, 0, 0, 0.1)',
+        'ios-strong': '0 8px 24px rgba(0, 0, 0, 0.15)',
+      }
     },
   },
   plugins: [require('tailwindcss-animate')],
