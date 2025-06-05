@@ -50,7 +50,10 @@ export default function PantryManagerClient() {
   useEffect(() => {
     setHasMounted(true);
     if (!codeReaderRef.current) {
-      codeReaderRef.current = new BrowserCodeReader();
+      codeReaderRef.current = new BrowserCodeReader(undefined, {
+        tryHarder: true,
+        formats: [], // An empty array means all supported formats
+      });
     }
   }, []);
   
@@ -59,11 +62,15 @@ export default function PantryManagerClient() {
       actualVideoRef.current = node;
       setIsVideoElementReady(true);
     } else {
+      // Node is null when component unmounts or ref is detached
+      actualVideoRef.current = null; // Explicitly nullify
       setIsVideoElementReady(false);
     }
   }, []);
 
+
   const stopCurrentScan = useCallback(() => {
+    // 1. Stop decoding controls if they exist
     if (controlsRef.current && typeof controlsRef.current.stop === 'function') {
       try {
         controlsRef.current.stop();
@@ -73,31 +80,24 @@ export default function PantryManagerClient() {
     }
     controlsRef.current = null;
 
-    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
-      try {
-        codeReaderRef.current.reset();
-      } catch (e) {
-        console.warn("Error resetting code reader:", e);
-      }
+    // 2. Nullify video srcObject to release it from the video element
+    if (actualVideoRef.current && actualVideoRef.current.srcObject) {
+      actualVideoRef.current.srcObject = null;
     }
-
+    
+    // 3. Stop all tracks on the stream
     if (streamForCleanupRef.current) {
       streamForCleanupRef.current.getTracks().forEach(track => track.stop());
       streamForCleanupRef.current = null;
     }
 
-    if (actualVideoRef.current && actualVideoRef.current.srcObject) {
+    // 4. Reset the BrowserCodeReader instance - this is important for releasing camera by ZXing
+    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
       try {
-        // Tracks on srcObject should be stopped by streamForCleanupRef.current handling
-        // but as a safeguard:
-        const stream = actualVideoRef.current.srcObject as MediaStream;
-        if (stream && typeof stream.getTracks === 'function') {
-            stream.getTracks().forEach(track => track.stop());
-        }
+        codeReaderRef.current.reset(); 
       } catch (e) {
-        console.warn("Error stopping tracks on video srcObject during cleanup:", e);
+        console.warn("Error resetting code reader:", e);
       }
-      actualVideoRef.current.srcObject = null;
     }
   }, []);
 
@@ -113,7 +113,7 @@ export default function PantryManagerClient() {
       toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name or use as is.` });
       setLastScannedBarcode(scannedValue); 
     }
-    setIsScannerOpen(false); // This will trigger cleanup via useEffect -> stopCurrentScan
+    setIsScannerOpen(false); 
   }, [barcodeDb, toast, setIsScannerOpen, setNewItemName, setLastScannedBarcode]);
   
   const handleScanError = useCallback((error: any) => {
@@ -127,7 +127,6 @@ export default function PantryManagerClient() {
   useEffect(() => {
     if (!isScannerOpen) {
       stopCurrentScan();
-      // Reset states only if they were previously not null, to avoid unnecessary re-renders
       if (hasCameraPermission !== null || scannerError !== null) { 
         setHasCameraPermission(null);
         setScannerError(null);
@@ -140,11 +139,11 @@ export default function PantryManagerClient() {
       const codeReader = codeReaderRef.current;
 
       setScannerError(null); 
-      setHasCameraPermission(null);
+      setHasCameraPermission(null); // Set to loading
 
       const initializeCameraAndScanner = async () => {
         try {
-          if (streamForCleanupRef.current) { // Ensure any old stream is stopped
+          if (streamForCleanupRef.current) { 
             streamForCleanupRef.current.getTracks().forEach(track => track.stop());
             streamForCleanupRef.current = null;
           }
@@ -152,7 +151,7 @@ export default function PantryManagerClient() {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
           streamForCleanupRef.current = stream; 
 
-          if (!videoElement || !isScannerOpen) { // Re-check after await getUserMedia
+          if (!videoElement || !isScannerOpen) { 
              if (streamForCleanupRef.current) {
                 streamForCleanupRef.current.getTracks().forEach(track => track.stop());
                 streamForCleanupRef.current = null;
@@ -163,15 +162,14 @@ export default function PantryManagerClient() {
           
           await videoElement.play(); 
           
-          if (!isScannerOpen) { // Re-check after await play
-            stopCurrentScan(); // This will also clean up streamForCleanupRef
+          if (!isScannerOpen) { 
+            stopCurrentScan();
             return;
           }
 
           setHasCameraPermission(true); 
           setScannerError(null);
           
-          // decodeFromVideoElement is synchronous and returns controls. Do NOT await.
           controlsRef.current = codeReader.decodeFromVideoElement(
             videoElement,
             (result: Result | undefined, error: any) => {
@@ -194,17 +192,20 @@ export default function PantryManagerClient() {
           
           setScannerError(message);
           setHasCameraPermission(false);
-          stopCurrentScan(); // Perform cleanup on error
+          stopCurrentScan(); 
         }
       };
 
       initializeCameraAndScanner();
+    } else if (isScannerOpen) {
+      // This case implies isVideoElementReady is false, or refs are not set.
+      setScannerError("Video or scanner component not ready. Please try reopening the scanner.");
+      setHasCameraPermission(null); // Reset to loading/indeterminate
     }
     
-    return () => { // Effect cleanup function
+    return () => { 
       stopCurrentScan();
     };
-  // Dependencies for the main camera effect. Callbacks are memoized.
   }, [isScannerOpen, isVideoElementReady, handleScanSuccess, handleScanError, stopCurrentScan]);
 
 
@@ -354,9 +355,11 @@ export default function PantryManagerClient() {
                 </DialogHeader>
                 <div className="p-6 pt-0">
                   <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-muted">
-                    <video ref={videoCallbackRef} className="h-full w-full object-cover" playsInline muted />
+                    {/* Video element always rendered for ZXing */}
+                    <video ref={videoCallbackRef} className="h-full w-full object-cover" playsInline muted autoPlay />
                     
-                    {(hasCameraPermission === null || (hasCameraPermission === false && scannerError) || (!isVideoElementReady && isScannerOpen && hasCameraPermission !== false && !scannerError) || (hasCameraPermission === true && scannerError) ) && (
+                    {/* Overlay for loading/error messages */}
+                    {(hasCameraPermission === null || (hasCameraPermission === false && scannerError) || (!isVideoElementReady && isScannerOpen && hasCameraPermission !== false && !scannerError) || (hasCameraPermission === true && scannerError && !isScannerOpen) ) && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 p-4 text-center">
                         {(hasCameraPermission === null && !scannerError) && ( 
                             <>
@@ -377,7 +380,7 @@ export default function PantryManagerClient() {
                             <AlertDescription>{scannerError || "Unknown camera error."}</AlertDescription>
                             </Alert>
                         )}
-                         {(hasCameraPermission === true && scannerError) && (
+                         {(hasCameraPermission === true && scannerError && !isScannerOpen) && ( // Show scanner error only if camera was ok but scan failed and dialog closed
                             <Alert variant="default" className="mt-4 border-yellow-500/50 text-yellow-700 dark:text-yellow-400 [&>svg]:text-yellow-500">
                             <AlertTriangle className="h-5 w-5" />
                             <AlertTitle>Scanning Issue</AlertTitle>
