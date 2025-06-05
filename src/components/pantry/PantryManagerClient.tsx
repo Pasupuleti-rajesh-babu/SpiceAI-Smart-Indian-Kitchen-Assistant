@@ -71,23 +71,22 @@ export default function PantryManagerClient() {
       toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
       setLastScannedBarcode(null); 
     } else {
-      setNewItemName(scannedValue); // Set name to barcode itself
+      setNewItemName(scannedValue); 
       toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name.` });
       setLastScannedBarcode(scannedValue); 
     }
-    setIsScannerOpen(false); // Close dialog on successful scan
+    setIsScannerOpen(false); 
   }, [barcodeDb, setNewItemName, setIsScannerOpen, setLastScannedBarcode, toast]);
   
   const handleScanError = useCallback((error: any) => {
     if (error instanceof NotFoundException) {
-      return; // Normal, no barcode found in frame
+      return; 
     }
     console.error("Barcode scanning error:", error);
-    // Only set error if dialog is still considered open by the parent state
-    if (isScannerOpen) {
+    if (isScannerOpen) { // Check if dialog is still meant to be open
       setScannerError("Error during barcode scanning. Try adjusting camera or lighting.");
     }
-  }, [isScannerOpen]);
+  }, [isScannerOpen]); // isScannerOpen dependency
 
 
   useEffect(() => {
@@ -95,11 +94,16 @@ export default function PantryManagerClient() {
     const videoElement = videoRef.current;
 
     if (isScannerOpen && codeReader && videoElement) {
-      setScannerError(null);
-      setHasCameraPermission(null);
+      setScannerError(null); // Reset scanner error on open
+      setHasCameraPermission(null); // Reset permission state to show loading
 
       const initializeCameraAndScanner = async () => {
         try {
+          if (!videoElement) { // Should not happen if this effect runs after render
+            throw new Error("Video element not available.");
+          }
+          
+          // Ensure previous stream is stopped if any
           if (videoElement.srcObject) {
             (videoElement.srcObject as MediaStream).getTracks().forEach(track => track.stop());
           }
@@ -107,22 +111,21 @@ export default function PantryManagerClient() {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
           videoElement.srcObject = stream;
           
-          await videoElement.play().catch(playError => {
-            console.error("Video play error:", playError);
-            throw new Error("Could not start video stream. Ensure permissions or interact with page.");
-          });
-
-          setHasCameraPermission(true);
-          setScannerError(null); // Clear previous errors if successful now
+          await videoElement.play(); // Wait for play to complete
+          
+          setHasCameraPermission(true); // Set permission true AFTER play succeeds
+          setScannerError(null); // Clear any previous errors
 
           controlsRef.current = await codeReader.decodeFromVideoElement(
             videoElement,
             (result: Result | undefined, error: Error | undefined) => {
-              const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
-              if ((!isScannerOpen && !dialogStillOpen) || !document.body.contains(videoElement)) {
-                cleanupScannerResources();
+              // Check if component is still mounted and dialog is open
+               const dialogStillOpen = !!document.querySelector('[data-radix-dialog-content][aria-modal="true"]');
+               if ((!isScannerOpen && !dialogStillOpen) || !document.body.contains(videoElement)) {
+                cleanupScannerResources(); // Ensure cleanup if dialog closed rapidly or component unmounted
                 return;
               }
+
               if (result) {
                 handleScanSuccess(result.getText());
               } else if (error) {
@@ -132,28 +135,30 @@ export default function PantryManagerClient() {
           );
         } catch (error: any) {
           console.error('Error initializing camera/scanner:', error);
-          let message = 'Could not initialize camera. Ensure permissions are granted.';
-          if (error.name === "NotAllowedError") message = "Camera permission denied. Enable in browser settings.";
+          let message = 'Could not initialize camera. Ensure permissions are granted and no other app is using it.';
+          if (error.name === "NotAllowedError") message = "Camera permission denied. Please enable it in your browser settings.";
           else if (error.name === "NotFoundError") message = "No camera found. Ensure a camera is connected.";
-          else if (error.name === "NotReadableError") message = "Camera is in use by another app or hardware error.";
-          else if (error.message) message = error.message;
+          else if (error.name === "NotReadableError") message = "Camera is currently in use by another application or there might be a hardware issue.";
+          else if (error.message) message = error.message; // Use specific error message if available
           
           setScannerError(message);
-          setHasCameraPermission(false);
-          cleanupScannerResources();
+          setHasCameraPermission(false); // Explicitly set permission to false on error
+          cleanupScannerResources(); // Cleanup on error
         }
       };
 
       initializeCameraAndScanner();
 
-    } else {
+    } else if (!isScannerOpen) { // Explicitly cleanup when dialog is closed
       cleanupScannerResources();
     }
 
     return () => { 
+      // This cleanup runs when the component unmounts or before the effect re-runs
+      // if isScannerOpen changes (which it will when closing the dialog).
       cleanupScannerResources();
     };
-  }, [isScannerOpen, cleanupScannerResources, handleScanSuccess, handleScanError]);
+  }, [isScannerOpen, cleanupScannerResources, handleScanSuccess, handleScanError]); // Dependencies for the effect
 
 
   const handleAddItem = () => {
@@ -245,7 +250,6 @@ export default function PantryManagerClient() {
   useEffect(() => {
     if (lastScannedBarcode && newItemName !== lastScannedBarcode && newItemName !== barcodeDb[lastScannedBarcode]) {
         // User started typing a different name after a barcode was scanned (and it wasn't an auto-filled name)
-        // No explicit action needed here now as lastScannedBarcode is only cleared on successful add item.
     }
   }, [newItemName, lastScannedBarcode, barcodeDb]);
 
@@ -307,14 +311,16 @@ export default function PantryManagerClient() {
                   <DialogTitle>Scan Barcode</DialogTitle>
                 </DialogHeader>
                 <div className="py-4">
+                  {/* Video element is now always rendered when dialog is open, not conditionally hidden */}
                   <video 
                     ref={videoRef} 
-                    className={cn("w-full aspect-video rounded-md bg-muted", { 'hidden': hasCameraPermission !== true || scannerError })} 
+                    className="w-full aspect-video rounded-md bg-muted"
                     muted 
                     playsInline 
                   />
+                  {/* Conditional rendering for loading/error states */}
                   {hasCameraPermission === null && !scannerError && (
-                      <div className="flex flex-col items-center justify-center h-32 mt-2">
+                      <div className="flex flex-col items-center justify-center h-auto mt-2">
                           <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
                           <p className="text-muted-foreground">Initializing camera...</p>
                       </div>
@@ -326,13 +332,13 @@ export default function PantryManagerClient() {
                       <AlertDescription>{scannerError}</AlertDescription>
                     </Alert>
                   )}
-                  {/* This explicit "permission denied" or "no camera" might be redundant if scannerError covers it, but can be a fallback */}
+                  {/* This message is for when permission is explicitly false but no other scannerError is set (e.g. initial denial) */}
                   {hasCameraPermission === false && !scannerError && (
                     <Alert variant="destructive" className="mt-2">
                       <VideoOff className="h-4 w-4" />
-                      <AlertTitle>Camera Access Issue</AlertTitle>
+                      <AlertTitle>Camera Access Required</AlertTitle>
                       <AlertDescription>
-                        Camera access problem. Check permissions or ensure no other app is using the camera.
+                        Camera permission was denied or a camera could not be found. Please check your browser settings.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -438,6 +444,5 @@ export default function PantryManagerClient() {
     </div>
   );
 }
-
 
     
