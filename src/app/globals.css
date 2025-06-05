@@ -3,6 +3,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide body until theme is applied to prevent flash of incorrect theme */
+html:not(.theme-applied) body {
+  visibility: hidden !important;
+}
+/* Ensure body becomes visible once theme is applied */
+html.theme-applied body {
+  visibility: visible !important;
+}
+
 body {
   font-family: 'PT Sans', sans-serif;
 }

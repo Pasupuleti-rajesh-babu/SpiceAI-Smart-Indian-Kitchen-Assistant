@@ -11,7 +11,7 @@ export default function HomePage() {
     <div className="container mx-auto min-h-screen px-4 py-8 md:py-12">
       <header className="mb-12 text-center">
         <Image 
-          src="/logo.png" // Changed to placeholder
+          src="/image.png" // Changed to placeholder
           alt="SpiceAI Logo" 
           width={100} 
           height={100} 
