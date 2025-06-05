@@ -15,7 +15,7 @@ import { PANTRY_ITEMS_KEY, APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
 import type { PantryItem } from '@/types/pantry';
 import type { AppSettings } from '@/types/settings';
 import { defaultAppSettings } from '@/types/settings';
-import { CalendarHeart, Sparkles, Send } from 'lucide-react';
+import { CalendarHeart, Sparkles, Send, Loader2 } from 'lucide-react';
 
 export default function AiMealPlannerClient() {
   const [pantryContents, setPantryContents] = useState('');
@@ -25,13 +25,18 @@ export default function AiMealPlannerClient() {
   const { toast } = useToast();
   const [storedPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
   const [settings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
+  const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
-    if (storedPantryItems.length > 0) {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (hasMounted && storedPantryItems.length > 0) {
       const pantryNames = storedPantryItems.map(item => item.name).join(', ');
       setPantryContents(pantryNames);
     }
-  }, [storedPantryItems]);
+  }, [storedPantryItems, hasMounted]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +66,20 @@ export default function AiMealPlannerClient() {
     }
     setIsLoading(false);
   };
+
+  if (!hasMounted) {
+    return (
+      <AiFeatureCard
+        title="AI Meal Planner"
+        description="Get a 7-day Indian meal plan based on your pantry, dietary goals, and cuisine preferences."
+        icon={CalendarHeart}
+      >
+        <div className="flex justify-center items-center min-h-[200px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AiFeatureCard>
+    );
+  }
 
   return (
     <AiFeatureCard
@@ -96,9 +115,11 @@ export default function AiMealPlannerClient() {
             required
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-            Your cuisine preferences from settings (currently: {settings.cuisinePreferences?.join(', ') || 'Any Indian'}) will be considered.
-        </p>
+        {hasMounted && (
+          <p className="text-xs text-muted-foreground">
+              Your cuisine preferences from settings (currently: {settings.cuisinePreferences?.join(', ') || 'Any Indian'}) will be considered.
+          </p>
+        )}
         <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
           {isLoading ? (
             <Sparkles className="mr-2 h-5 w-5 animate-spin" />

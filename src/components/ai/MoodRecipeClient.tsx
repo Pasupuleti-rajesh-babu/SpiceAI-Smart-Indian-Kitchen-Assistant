@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +11,7 @@ import type { Recipe } from '@/types/recipe';
 import { moodBasedRecipe, type MoodBasedRecipeInput } from '@/ai/flows/mood-based-recipe';
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChefHat, Sparkles, Send } from 'lucide-react';
+import { ChefHat, Sparkles, Send, Loader2 } from 'lucide-react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { APP_SETTINGS_KEY } from '@/lib/localStorageKeys';
 import type { AppSettings } from '@/types/settings';
@@ -26,6 +26,11 @@ export default function MoodRecipeClient() {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [settings] = useLocalStorage<AppSettings>(APP_SETTINGS_KEY, defaultAppSettings);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const effectiveMood = mood === 'Other' ? customMood : mood;
 
@@ -51,6 +56,20 @@ export default function MoodRecipeClient() {
     }
     setIsLoading(false);
   };
+
+  if (!hasMounted) {
+    return (
+      <AiFeatureCard
+        title="Mood-Based Recipes"
+        description="Tell us how you're feeling, and we'll suggest a comforting Indian recipe based on your preferences."
+        icon={ChefHat}
+      >
+        <div className="flex justify-center items-center min-h-[200px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AiFeatureCard>
+    );
+  }
 
   return (
     <AiFeatureCard
@@ -87,9 +106,11 @@ export default function MoodRecipeClient() {
             />
           </div>
         )}
+        {hasMounted && (
          <p className="text-xs text-muted-foreground">
-            Your cuisine preferences from settings (currently: {settings.cuisinePreferences?.join(', ') || 'None set'}) will be considered.
+            Your cuisine preferences from settings (currently: {settings.cuisinePreferences?.join(', ') || 'Any Indian'}) will be considered.
           </p>
+        )}
         <Button type="submit" disabled={isLoading || !effectiveMood.trim()} className="w-full sm:w-auto">
           {isLoading ? (
             <Sparkles className="mr-2 h-5 w-5 animate-spin" />
