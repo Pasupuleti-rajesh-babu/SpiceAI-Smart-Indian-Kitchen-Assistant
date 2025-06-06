@@ -75,13 +75,6 @@ export default function PantryManagerClient() {
     }
     controlsRef.current = null;
 
-    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
-      try {
-        codeReaderRef.current.reset();
-      } catch(e) { console.warn("Error resetting code reader:", e); }
-    }
-    codeReaderRef.current = null; 
-
     if (streamForCleanupRef.current) {
       streamForCleanupRef.current.getTracks().forEach(track => track.stop());
       streamForCleanupRef.current = null;
@@ -90,6 +83,13 @@ export default function PantryManagerClient() {
     if (actualVideoRef.current && actualVideoRef.current.srcObject) {
       actualVideoRef.current.srcObject = null;
     }
+    
+    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
+      try {
+        codeReaderRef.current.reset();
+      } catch(e) { console.warn("Error resetting code reader:", e); }
+    }
+    codeReaderRef.current = null; 
   }, []);
 
 
@@ -116,12 +116,9 @@ export default function PantryManagerClient() {
 
     if (error instanceof NotFoundException || error instanceof ChecksumException || error instanceof FormatException) {
       // These are expected errors if no barcode is found or it's unreadable.
-      // Do not flood UI with these, but good to log them for debugging.
-      // Avoid setting scannerError here unless it's a new type of error or to clear a previous one.
-      if (isScannerOpenRef.current && scannerError && !scannerError.includes("No barcode found")) {
-        // Only update if there was a different error before and now it's just "not found"
-        // Or, if we want to clear a sticky error.
-        // For now, let's be conservative and not set it.
+      // Do not flood UI with these.
+      if (scannerError && !scannerError.includes("Point camera at barcode")) {
+          setScannerError(null); // Clear any previous sticky errors if we are now just "not found"
       }
       return; 
     }
@@ -130,7 +127,7 @@ export default function PantryManagerClient() {
     if (isScannerOpenRef.current) { 
         setScannerError(`Error during barcode scanning: ${error.message || "Unknown error"}`);
     }
-  }, [hasCameraPermission, scannerError, setScannerError]); 
+  }, [scannerError, setScannerError]); 
 
   useEffect(() => {
     if (!isScannerOpen) {
@@ -183,13 +180,16 @@ export default function PantryManagerClient() {
                 
                 const hints = new Map();
                 const formats = [
-                    BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.CODE_128, 
-                    BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.DATA_MATRIX, 
-                    BarcodeFormat.ITF, BarcodeFormat.CODABAR, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
+                    BarcodeFormat.UPC_A,
+                    BarcodeFormat.UPC_E,
+                    BarcodeFormat.EAN_13,
+                    BarcodeFormat.EAN_8,
+                    BarcodeFormat.CODE_128, // A common general-purpose format
                 ];
                 hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
                 hints.set(DecodeHintType.TRY_HARDER, true);
                 
+                // Ensure a fresh reader instance
                 codeReaderRef.current = new BrowserCodeReader(hints); 
                                 
                 if (codeReaderRef.current && actualVideoRef.current && isScannerOpenRef.current) { 
@@ -247,6 +247,7 @@ export default function PantryManagerClient() {
     return () => { 
       stopCurrentScan();
     };
+  // Removed handleScanSuccess and handleScanError from dependencies to prevent flickering
   }, [isScannerOpen, isVideoElementReady, stopCurrentScan]);
 
 
@@ -428,7 +429,7 @@ export default function PantryManagerClient() {
                         </div>
                     )}
                   </div>
-                   { (hasCameraPermission === true && scannerError) && ( 
+                   { (hasCameraPermission === true && scannerError && !scannerError.includes("Point camera at barcode")) && ( 
                         <Alert variant="default" className="mt-4 border-yellow-500/50 text-yellow-700 dark:text-yellow-400 [&>svg]:text-yellow-500">
                         <AlertTriangle className="h-5 w-5" />
                         <AlertTitle>Scanning Issue</AlertTitle>
@@ -437,7 +438,7 @@ export default function PantryManagerClient() {
                     )}
                      { (hasCameraPermission === true && !scannerError) && (
                         <p className="mt-2 text-xs text-center text-muted-foreground">
-                            Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances for best results.
+                            Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances.
                         </p>
                     )}
                 </div>
@@ -557,5 +558,7 @@ export default function PantryManagerClient() {
     </div>
   );
 }
+
+    
 
     
