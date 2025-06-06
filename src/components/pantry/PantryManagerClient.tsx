@@ -75,17 +75,23 @@ export default function PantryManagerClient() {
     }
     setLastScannedBarcode(decodedText);
     setIsScannerOpen(false); // Close scanner on successful scan
-  }, [barcodeDb, toast, setIsScannerOpen]); // Dependencies for useCallback
+  }, [barcodeDb, toast, setIsScannerOpen, setLastScannedBarcode, setNewItemName, setManualBarcode]); // Dependencies for useCallback
 
   const onScanFailure: QrcodeErrorCallback = useCallback((errorMessage) => {
       if (!isScannerOpenRef.current) return;
       
       const lowerError = errorMessage.toLowerCase();
-      const isTypicalNotFound = lowerError.includes("notfoundexception") || 
-                                lowerError.includes("no multiformat readers") ||
-                                lowerError.includes("qr code no longer detected") ||
-                                lowerError.includes("unable to query supported devices") || 
-                                lowerError.includes("insufficient vision");
+      // List of common "not found" messages that html5-qrcode might return.
+      const typicalNotFoundMessages = [
+        "notfoundexception", 
+        "no multiformat readers", 
+        "qr code no longer detected",
+        "unable to query supported devices", 
+        "insufficient vision",
+        "no barcode or qr code detected" // Added this specific message
+      ];
+      
+      const isTypicalNotFound = typicalNotFoundMessages.some(msg => lowerError.includes(msg));
 
       if (isTypicalNotFound) {
         // These are expected during scanning when no code is found.
@@ -135,34 +141,32 @@ export default function PantryManagerClient() {
                 return { width: qrboxSize, height: qrboxSize };
               },
               supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
-              formatsToSupport: [ // Explicitly list common formats
+              formatsToSupport: [ 
                 Html5QrcodeSupportedFormats.UPC_A,
                 Html5QrcodeSupportedFormats.UPC_E,
                 Html5QrcodeSupportedFormats.EAN_13,
                 Html5QrcodeSupportedFormats.EAN_8,
                 Html5QrcodeSupportedFormats.CODE_128,
-                // Html5QrcodeSupportedFormats.QR_CODE, // Can add if QR codes are also needed
               ],
             },
             false // verbose (false = less console logging from the library itself)
           );
           
           try {
+            // scanner.render() does not return a promise
             scanner.render(onScanSuccess, onScanFailure);
+            
             // If render() is successful and dialog is still open
             if (isScannerOpenRef.current) {
               setScannerMessage("Scanner active. Point camera at barcode.");
             }
+            html5QrCodeScannerRef.current = scanner; // Assign only if render() did not throw
           } catch (renderError: any) {
             console.error("Error calling Html5QrcodeScanner.render():", renderError);
             if (isScannerOpenRef.current) { // Check if still open
               setScannerMessage(`Error starting scanner: ${renderError.message || "Unknown error"}`);
             }
-            // If render fails, we should not assign to html5QrCodeScannerRef.current
-            // or ensure it's cleared if it was somehow assigned before error.
-            // The current logic handles this by only assigning if render does not throw.
           }
-          html5QrCodeScannerRef.current = scanner; // Assign only if render() did not throw
         }
       }, 0); // setTimeout with 0ms delay
 
