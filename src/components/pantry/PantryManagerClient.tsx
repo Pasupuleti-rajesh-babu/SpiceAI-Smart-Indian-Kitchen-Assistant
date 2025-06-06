@@ -125,16 +125,23 @@ export default function PantryManagerClient() {
       } else if (data.code === "OK" && data.items && data.items.length === 0) {
         toast({ title: "Barcode Scanned", description: `No product details found for ${barcode}. Please enter name manually.`, variant: "default" });
         setScannerMessage(`No details for ${barcode}. Add manually.`);
-        setNewItemName(''); // Clear name if not found
+        setNewItemName(''); 
       } else {
          toast({ title: "API Issue", description: data.message || `Could not retrieve details for ${barcode}.`, variant: "destructive" });
          setScannerMessage(`API Issue: ${data.message || 'Try again'}.`);
          setNewItemName('');
       }
     } catch (error: any) {
-      console.error("Error looking up barcode:", error);
-      toast({ title: "API Error", description: error.message || "Failed to lookup barcode. Please enter name manually.", variant: "destructive" });
-      setScannerMessage(`API Error. Add manually.`);
+      console.error("Error looking up barcode:", error); // This log is useful for developers
+      const description = (error.message === "Failed to fetch"
+        ? "Network error or API issue (e.g., CORS). Could not connect. Please enter name manually."
+        : error.message) || "Failed to lookup barcode. Please enter name manually.";
+      toast({ 
+        title: "API Error", 
+        description: description, 
+        variant: "destructive" 
+      });
+      setScannerMessage(`API Error (Network/CORS?). Add manually.`);
       setNewItemName('');
     } finally {
       setIsApiLoading(false);
@@ -146,21 +153,19 @@ export default function PantryManagerClient() {
     if (!isScannerOpenRef.current) return;
 
     console.log(`Scan result: ${decodedText}`, decodedResult);
-    setManualBarcode(decodedText); // Populate manual barcode field with scanned value
+    setManualBarcode(decodedText); 
     setLastScannedBarcode(decodedText);
     
-    // Check local DB first
     const knownItemName = barcodeDb[decodedText];
     if (knownItemName) {
         setNewItemName(knownItemName);
         toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
         setScannerMessage(`Found in your records: ${knownItemName}`);
     } else {
-        // If not in local DB, try API lookup
         await lookupBarcodeOnApi(decodedText);
     }
     
-    setIsScannerOpen(false); // Close scanner dialog
+    setIsScannerOpen(false); 
   }, [barcodeDb, toast, setIsScannerOpen, setLastScannedBarcode, setNewItemName, setManualBarcode, lookupBarcodeOnApi]);
 
   const onScanFailure: QrcodeErrorCallback = useCallback((errorMessage) => {
@@ -258,7 +263,9 @@ export default function PantryManagerClient() {
       if (timerId) {
         clearTimeout(timerId);
       }
-      if (html5QrCodeScannerRef.current && !isScannerOpenRef.current) {
+      // Check if the ref still holds a scanner instance and if it's not supposed to be open
+      // This additional check for isScannerOpenRef.current might be redundant if clear() handles no-op well
+      if (html5QrCodeScannerRef.current && !isScannerOpenRef.current) { 
          html5QrCodeScannerRef.current.clear().catch(err => console.warn("Scanner clear failed on effect cleanup:", err));
          html5QrCodeScannerRef.current = null;
       }
@@ -266,6 +273,7 @@ export default function PantryManagerClient() {
   }, [isScannerOpen, onScanSuccess, onScanFailure]);
 
   useEffect(() => {
+    // Component unmount cleanup
     return () => {
       if (html5QrCodeScannerRef.current) {
         html5QrCodeScannerRef.current.clear()
@@ -301,10 +309,13 @@ export default function PantryManagerClient() {
     if (currentManualBarcode && currentNewItemName !== currentManualBarcode) {
         barcodeToAssociate = currentManualBarcode;
     } else if (lastScannedBarcode && currentNewItemName !== lastScannedBarcode) {
-        barcodeToAssociate = lastScannedBarcode;
+        // This condition ensures we prefer manual barcode if both are present and different from item name.
+        // If manualBarcode is empty, then lastScannedBarcode (if it exists and is different from item name) is used.
+        if(!currentManualBarcode) barcodeToAssociate = lastScannedBarcode;
     }
 
-    if (barcodeToAssociate && barcodeDb[barcodeToAssociate] !== currentNewItemName) { // Only update DB if name changed or new
+
+    if (barcodeToAssociate && barcodeDb[barcodeToAssociate] !== currentNewItemName) { 
         setBarcodeDb(prevDb => ({ ...prevDb, [barcodeToAssociate!]: currentNewItemName }));
         toast({ title: "Item Added & Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${barcodeToAssociate}.`, variant: "default" });
     } else if (barcodeToAssociate && barcodeDb[barcodeToAssociate] === currentNewItemName) {
@@ -582,4 +593,3 @@ export default function PantryManagerClient() {
     </div>
   );
 }
-
