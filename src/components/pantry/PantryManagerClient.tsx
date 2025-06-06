@@ -68,36 +68,28 @@ export default function PantryManagerClient() {
   }, []);
 
   const stopCurrentScan = useCallback(() => {
-    // Stop scanner controls first
     if (controlsRef.current && typeof controlsRef.current.stop === 'function') {
       try {
         controlsRef.current.stop();
-      } catch (e) {
-        console.warn("Error stopping scanner controls:", e);
-      }
+      } catch (e) { console.warn("Error stopping scanner controls:", e); }
     }
     controlsRef.current = null;
 
-    // Stop and release the media stream
+    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
+      try {
+        codeReaderRef.current.reset();
+      } catch(e) { console.warn("Error resetting code reader:", e); }
+    }
+    codeReaderRef.current = null; 
+
     if (streamForCleanupRef.current) {
       streamForCleanupRef.current.getTracks().forEach(track => track.stop());
       streamForCleanupRef.current = null;
     }
 
-    // Clear the video source
     if (actualVideoRef.current && actualVideoRef.current.srcObject) {
-        actualVideoRef.current.srcObject = null;
+      actualVideoRef.current.srcObject = null;
     }
-    
-    // Reset the BrowserCodeReader instance
-    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
-      try {
-        codeReaderRef.current.reset();
-      } catch (e) {
-        console.warn("Error resetting code reader:", e);
-      }
-    }
-    codeReaderRef.current = null; // Ensure it's null for re-creation
   }, []);
 
 
@@ -114,20 +106,22 @@ export default function PantryManagerClient() {
       toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name or use as is.` });
       setLastScannedBarcode(scannedValue); 
     }
-    setIsScannerOpen(false); // This will trigger the useEffect cleanup
+    setIsScannerOpen(false); 
   }, [barcodeDb, toast, setIsScannerOpen, setNewItemName, setLastScannedBarcode]);
   
   const handleScanError = useCallback((error: any) => {
     if (!isScannerOpenRef.current) return;
     
-    // Log all errors for debugging, even "expected" ones
     console.debug("ZXing scan attempt error:", error?.message || error);
 
     if (error instanceof NotFoundException || error instanceof ChecksumException || error instanceof FormatException) {
-      // These are expected errors if no barcode is found or it's unreadable. 
+      // These are expected errors if no barcode is found or it's unreadable.
       // Do not flood UI with these, but good to log them for debugging.
-      if (isScannerOpenRef.current && hasCameraPermission === true && !scannerError?.includes("No barcode found")) { 
-         // setScannerError("No barcode found or unable to read. Try adjusting position/lighting."); // Potentially too noisy
+      // Avoid setting scannerError here unless it's a new type of error or to clear a previous one.
+      if (isScannerOpenRef.current && scannerError && !scannerError.includes("No barcode found")) {
+        // Only update if there was a different error before and now it's just "not found"
+        // Or, if we want to clear a sticky error.
+        // For now, let's be conservative and not set it.
       }
       return; 
     }
@@ -141,28 +135,26 @@ export default function PantryManagerClient() {
   useEffect(() => {
     if (!isScannerOpen) {
       stopCurrentScan();
-      // Reset states only if they were previously set, to avoid flicker on initial mount
       if (hasCameraPermission !== null || scannerError !== null) { 
         setHasCameraPermission(null);
         setScannerError(null);
       }
-      return; // Exit early if scanner is not supposed to be open
+      return; 
     }
 
-    // Only proceed if scanner is open AND video element is ready
     if (isScannerOpen && isVideoElementReady && actualVideoRef.current) {
       
       const initializeCameraAndScanner = async () => {
-        if (!isScannerOpenRef.current) return; // Double check, in case state changed during async ops
+        if (!isScannerOpenRef.current) return; 
 
-        stopCurrentScan(); // Ensure clean state before starting
+        stopCurrentScan(); 
 
         setScannerError(null); 
-        setHasCameraPermission(null); // Indicate loading state
+        setHasCameraPermission(null); 
 
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          if (!isScannerOpenRef.current) { // Check again after await
+          if (!isScannerOpenRef.current) { 
             stream.getTracks().forEach(track => track.stop());
             return;
           }
@@ -182,33 +174,28 @@ export default function PantryManagerClient() {
             }
             try {
                 await actualVideoRef.current!.play(); 
-                if (!isScannerOpenRef.current) { // Check again after play
+                if (!isScannerOpenRef.current) { 
                     stopCurrentScan();
                     return;
                 }
                 setHasCameraPermission(true); 
-                setScannerError(null); // Clear any previous setup error
+                setScannerError(null); 
                 
                 const hints = new Map();
                 const formats = [
                     BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.CODE_128, 
                     BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.DATA_MATRIX, 
                     BarcodeFormat.ITF, BarcodeFormat.CODABAR, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
-                    // Add other formats if needed
                 ];
                 hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
                 hints.set(DecodeHintType.TRY_HARDER, true);
-
-                // Create a new reader instance each time
+                
                 codeReaderRef.current = new BrowserCodeReader(hints); 
                                 
                 if (codeReaderRef.current && actualVideoRef.current && isScannerOpenRef.current) { 
-                    // Start decoding from the video element.
-                    // Important: This callback will be invoked continuously.
                     controlsRef.current = codeReaderRef.current.decodeFromVideoElement(
                         actualVideoRef.current,
                         (result: Result | undefined, error: any) => {
-                          // Check isScannerOpenRef inside the callback, as it might have closed.
                           if (!isScannerOpenRef.current) return; 
                           if (result) {
                             handleScanSuccess(result.getText());
@@ -257,11 +244,10 @@ export default function PantryManagerClient() {
       initializeCameraAndScanner();
     }
     
-    // Cleanup function for the useEffect hook
     return () => { 
       stopCurrentScan();
     };
-  }, [isScannerOpen, isVideoElementReady, stopCurrentScan, handleScanSuccess, handleScanError]); // Added handleScanSuccess, handleScanError back as they are used in the effect scope now
+  }, [isScannerOpen, isVideoElementReady, stopCurrentScan]);
 
 
   const handleAddItem = () => {
@@ -414,7 +400,7 @@ export default function PantryManagerClient() {
                         ref={videoCallbackRef} 
                         className="h-full w-full object-cover" 
                         playsInline 
-                        autoPlay // Added autoPlay for good measure
+                        autoPlay 
                         muted 
                     />
                     
@@ -502,13 +488,14 @@ export default function PantryManagerClient() {
                   </div>
                   <p className="text-xs text-muted-foreground/80">Added: {format(parseISO(item.addedDate), 'MMM dd, yyyy')}</p>
                   <div className="flex space-x-2 pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleStartEdit(item)}
-                    >
-                      <Edit2 className="mr-1.5 h-3.5 w-3.5" /> Edit
-                    </Button>
+                    
+                        <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleStartEdit(item)}
+                        >
+                        <Edit2 className="mr-1.5 h-3.5 w-3.5" /> Edit
+                        </Button>
                     <Button
                       variant="destructive"
                       size="sm"
