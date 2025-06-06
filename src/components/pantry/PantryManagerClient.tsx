@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { PlusCircle, Edit2, Trash2, AlertTriangle, CheckCircle, PackageSearch, Loader2, ScanBarcode, VideoOff } from 'lucide-react';
+import { PlusCircle, Edit2, Trash2, AlertTriangle, CheckCircle, PackageSearch, Loader2, ScanBarcode } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
@@ -38,7 +38,7 @@ export default function PantryManagerClient() {
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const html5QrCodeScannerRef = useRef<Html5QrcodeScanner | null>(null);
-  const isScannerOpenRef = useRef(isScannerOpen);
+  const isScannerOpenRef = useRef(isScannerOpen); // For callbacks to access current state
   const [scannerMessage, setScannerMessage] = useState<string | null>(null);
     
   const [barcodeDb, setBarcodeDb] = useLocalStorage<BarcodeDatabase>(BARCODE_DATABASE_KEY, {});
@@ -48,121 +48,147 @@ export default function PantryManagerClient() {
     setHasMounted(true);
   }, []);
 
+  // Keep isScannerOpenRef updated
   useEffect(() => {
     isScannerOpenRef.current = isScannerOpen;
   }, [isScannerOpen]);
 
+  const onScanSuccess: QrcodeSuccessCallback = useCallback((decodedText, decodedResult) => {
+    if (!isScannerOpenRef.current) return; 
+
+    console.log(`Scan result: ${decodedText}`, decodedResult);
+    const knownItemName = barcodeDb[decodedText];
+    if (knownItemName) {
+        setNewItemName(knownItemName);
+        setManualBarcode(decodedText);
+        toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
+    } else {
+        setNewItemName(decodedText); 
+        setManualBarcode(decodedText); 
+        toast({ title: "New Barcode Scanned!", description: `Value: ${decodedText}. Please enter item name or use as is.` });
+    }
+    setLastScannedBarcode(decodedText);
+    setIsScannerOpen(false); 
+  }, [barcodeDb, setNewItemName, setManualBarcode, toast, setLastScannedBarcode, setIsScannerOpen]);
+
+  const onScanFailure: QrcodeErrorCallback = useCallback((errorMessage) => {
+      if (!isScannerOpenRef.current) return;
+      // console.debug(`html5-qrcode scan error: ${errorMessage}`);
+      if (errorMessage && 
+          !errorMessage.toLowerCase().includes("not found") && 
+          !errorMessage.toLowerCase().includes("qr code no longer detected") &&
+          !errorMessage.toLowerCase().includes("unable to query supported devices") && 
+          !errorMessage.toLowerCase().includes("insufficient vision")) {
+          setScannerMessage(`Scan Error: ${errorMessage}. Point camera at barcode.`);
+      } else {
+          setScannerMessage(currentMsg => {
+              if (currentMsg && currentMsg.startsWith("Scan Error:") && (errorMessage.toLowerCase().includes("not found") || errorMessage.toLowerCase().includes("qr code no longer detected"))) {
+                  return "Point camera at barcode.";
+              }
+              if (currentMsg && currentMsg.startsWith("Scan Error:")) return currentMsg;
+              return "Point camera at barcode.";
+          });
+      }
+  }, [setScannerMessage]);
+
 
   useEffect(() => {
-    // Ensure the ref is updated with the current dialog state
-    isScannerOpenRef.current = isScannerOpen;
-
-    const successCallback: QrcodeSuccessCallback = (decodedText, decodedResult) => {
-        if (!isScannerOpenRef.current) return; // Check ref to ensure dialog is still meant to be open
-
-        console.log(`Scan result: ${decodedText}`, decodedResult);
-        const knownItemName = barcodeDb[decodedText];
-        if (knownItemName) {
-            setNewItemName(knownItemName);
-            setManualBarcode(decodedText);
-            toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
-        } else {
-            setNewItemName(decodedText);
-            setManualBarcode(decodedText);
-            toast({ title: "New Barcode Scanned!", description: `Value: ${decodedText}. Please enter item name or use as is.` });
-        }
-        setLastScannedBarcode(decodedText);
-        setIsScannerOpen(false); // Close dialog on success
-    };
-
-    const errorCallback: QrcodeErrorCallback = (errorMessage) => {
-        if (!isScannerOpenRef.current) return;
-        // console.debug(`html5-qrcode scan error: ${errorMessage}`);
-        // Error callback is called frequently. Update UI message judiciously.
-        if (errorMessage && 
-            !errorMessage.toLowerCase().includes("not found") && 
-            !errorMessage.toLowerCase().includes("qr code no longer detected") &&
-            !errorMessage.toLowerCase().includes("unable to query supported devices") && // Common initial harmless error
-            !errorMessage.toLowerCase().includes("insufficient vision")) // Common initial harmless error
-             {
-            setScannerMessage(`Scan Error: ${errorMessage}. Point camera at barcode.`);
-        } else {
-            setScannerMessage(currentMsg => {
-                if (currentMsg && currentMsg.startsWith("Scan Error:") && (errorMessage.toLowerCase().includes("not found") || errorMessage.toLowerCase().includes("qr code no longer detected"))) {
-                    return "Point camera at barcode.";
-                }
-                if (currentMsg && currentMsg.startsWith("Scan Error:")) return currentMsg;
-                return "Point camera at barcode.";
-            });
-        }
-    };
+    let timerId: NodeJS.Timeout | null = null;
 
     if (isScannerOpen) {
-        setScannerMessage("Initializing scanner...");
-        // Ensure the target div exists
+      // Use setTimeout to ensure the DOM element is available after DialogContent renders
+      timerId = setTimeout(() => {
+        if (!isScannerOpenRef.current) return; // Check again in case dialog closed quickly
+
         const readerDiv = document.getElementById(HTML5_QRCODE_READER_ID);
         if (!readerDiv) {
-            console.error(`Element with ID ${HTML5_QRCODE_READER_ID} not found.`);
-            setScannerMessage("Scanner UI element not found. Cannot start.");
-            return;
+          console.error(`Element with ID ${HTML5_QRCODE_READER_ID} not found even after timeout.`);
+          setScannerMessage("Scanner UI element not found. Cannot start. Please try reopening the dialog.");
+          return;
         }
-        
-        const scanner = new Html5QrcodeScanner(
+
+        // Only create a new scanner if one doesn't already exist
+        if (!html5QrCodeScannerRef.current) {
+          setScannerMessage("Initializing scanner...");
+          const scanner = new Html5QrcodeScanner(
             HTML5_QRCODE_READER_ID,
             {
-                fps: 10,
-                qrbox: (viewfinderWidth, viewfinderHeight) => {
-                  const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-                  const qrboxSize = Math.floor(minEdge * 0.8); // Make qrbox slightly larger
-                  return { width: qrboxSize, height: qrboxSize };
-                },
-                supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
-                formatsToSupport: [ // Explicitly list common barcode formats
-                  Html5QrcodeSupportedFormats.UPC_A,
-                  Html5QrcodeSupportedFormats.UPC_E,
-                  Html5QrcodeSupportedFormats.EAN_13,
-                  Html5QrcodeSupportedFormats.EAN_8,
-                  Html5QrcodeSupportedFormats.CODE_128,
-                  // Add Html5QrcodeSupportedFormats.QR_CODE if you need QR codes too
-                ],
-                // aspectRatio: 1.0, // You can experiment with aspect ratio
+              fps: 10,
+              qrbox: (viewfinderWidth, viewfinderHeight) => {
+                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                const qrboxSize = Math.floor(minEdge * 0.8);
+                return { width: qrboxSize, height: qrboxSize };
+              },
+              supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+              formatsToSupport: [
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.CODE_128,
+              ],
             },
-            /* verbose= */ false
-        );
-        
-        scanner.render(successCallback, errorCallback)
-          .then(() => {
-            setScannerMessage("Scanner active. Point camera at barcode.");
-          })
-          .catch(renderError => {
-            console.error("Error rendering Html5QrcodeScanner:", renderError);
-            setScannerMessage(`Error starting scanner: ${renderError.message || "Unknown error"}`);
-          });
-        html5QrCodeScannerRef.current = scanner;
+            false // verbose
+          );
+
+          scanner.render(onScanSuccess, onScanFailure)
+            .then(() => {
+              if (isScannerOpenRef.current) { // Check if still open before setting message
+                setScannerMessage("Scanner active. Point camera at barcode.");
+              }
+            })
+            .catch(renderError => {
+              console.error("Error rendering Html5QrcodeScanner:", renderError);
+              if (isScannerOpenRef.current) {
+                setScannerMessage(`Error starting scanner: ${renderError.message || "Unknown error"}`);
+              }
+              // If render fails, clear the ref so it can be retried if dialog is reopened.
+              // Check if we are trying to clear the one we just failed to create
+              if (html5QrCodeScannerRef.current && html5QrCodeScannerRef.current === scanner) {
+                 html5QrCodeScannerRef.current = null;
+              }
+            });
+          html5QrCodeScannerRef.current = scanner;
+        }
+      }, 0); // setTimeout with 0ms delay
 
     } else { // isScannerOpen is false
-        if (html5QrCodeScannerRef.current) {
-            html5QrCodeScannerRef.current.clear()
-                .then(() => { /* console.log("Scanner cleared on close"); */ })
-                .catch(err => {
-                    // It's possible the element is already gone if dialog unmounts quickly
-                    // console.warn("Error clearing scanner on close (element might be gone):", err);
-                });
-            html5QrCodeScannerRef.current = null;
-        }
-        setScannerMessage(null);
+      if (html5QrCodeScannerRef.current) {
+        html5QrCodeScannerRef.current.clear()
+          .catch(err => {
+            console.warn("Error clearing scanner on dialog close (element might be gone):", err);
+          });
+        html5QrCodeScannerRef.current = null;
+      }
+      setScannerMessage(null);
     }
-
-    return () => { // Cleanup function for when the component unmounts or isScannerOpen changes
-        if (html5QrCodeScannerRef.current) {
-            html5QrCodeScannerRef.current.clear()
-                .catch(err => {
-                     // console.warn("Error clearing scanner on cleanup (element might be gone):", err);
-                });
-            html5QrCodeScannerRef.current = null;
-        }
+    
+    // Cleanup for this effect: clear timeout and potentially the scanner
+    return () => {
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+      // The scanner is also cleared if isScannerOpen becomes false,
+      // but this ensures cleanup if dependencies change while scanner is open.
+      if (html5QrCodeScannerRef.current && !isScannerOpen) { // Only clear if it's meant to be closed
+         html5QrCodeScannerRef.current.clear().catch(err => console.warn("Scanner clear failed on effect cleanup:", err));
+         html5QrCodeScannerRef.current = null;
+      }
     };
-}, [isScannerOpen, barcodeDb, setNewItemName, setManualBarcode, toast, setLastScannedBarcode, setIsScannerOpen]); // Effect dependencies
+  }, [isScannerOpen, onScanSuccess, onScanFailure, setScannerMessage]);
+
+  // Separate effect for component unmount cleanup
+  useEffect(() => {
+    return () => {
+      if (html5QrCodeScannerRef.current) {
+        html5QrCodeScannerRef.current.clear()
+          .catch(err => {
+            console.warn("Error clearing scanner on component unmount:", err);
+          });
+        html5QrCodeScannerRef.current = null;
+      }
+    };
+  }, []);
 
 
   const handleAddItem = () => {
@@ -186,9 +212,11 @@ export default function PantryManagerClient() {
     let barcodeToAssociate: string | null = null;
     let associationMade = false;
 
+    // Prefer last scanned barcode for association if available and different from name
     if (lastScannedBarcode && currentNewItemName !== lastScannedBarcode) {
         barcodeToAssociate = lastScannedBarcode;
     } 
+    // Fallback to manual barcode if no scanned one or if manual is different from name
     else if (currentManualBarcode && currentNewItemName !== currentManualBarcode) {
         barcodeToAssociate = currentManualBarcode;
     }
@@ -200,19 +228,19 @@ export default function PantryManagerClient() {
     }
     
     if (!associationMade) { 
-        if (lastScannedBarcode && currentNewItemName === lastScannedBarcode) {
-            toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name.`, variant: "default" });
-        } else if (currentManualBarcode && currentNewItemName === currentManualBarcode) {
-            toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name.`, variant: "default" });
-        } else {
-             toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
-        }
+      if (lastScannedBarcode && currentNewItemName === lastScannedBarcode) {
+        toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name.`, variant: "default" });
+      } else if (currentManualBarcode && currentNewItemName === currentManualBarcode) {
+        toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name.`, variant: "default" });
+      } else {
+        toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
+      }
     }
     
     setNewItemName('');
     setNewItemQuantity('');
     setNewItemExpiryDate('');
-    setLastScannedBarcode(null);
+    setLastScannedBarcode(null); // Clear after adding
     setManualBarcode(''); 
   };
 
@@ -281,7 +309,7 @@ export default function PantryManagerClient() {
     <div className="space-y-8">
       <GlassCard className="p-6 md:p-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground">Add New Item</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-end">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-2 items-end">
           <div>
             <Label htmlFor="newItemName">Item Name</Label>
             <Input
@@ -292,7 +320,7 @@ export default function PantryManagerClient() {
               className="mt-1"
             />
           </div>
-          <div>
+           <div>
             <Label htmlFor="manualBarcode">Enter Barcode (Optional)</Label>
             <Input
               id="manualBarcode"
@@ -337,7 +365,7 @@ export default function PantryManagerClient() {
                   <DialogTitle>Scan Barcode</DialogTitle>
                 </DialogHeader>
                 <div className="p-6 pt-0">
-                  <div id={HTML5_QRCODE_READER_ID} className="w-full rounded-md border bg-muted overflow-hidden">
+                  <div id={HTML5_QRCODE_READER_ID} className="w-full min-h-[250px] rounded-md border bg-muted overflow-hidden">
                     {/* html5-qrcode library will render camera feed here */}
                   </div>
                   {scannerMessage && (
@@ -388,7 +416,7 @@ export default function PantryManagerClient() {
                   expiry.color === 'text-red-600 font-semibold' && 'border-red-500',
                   expiry.color === 'text-yellow-500' && 'border-yellow-500',
                   expiry.color === 'text-green-500' && 'border-green-500',
-                  !expiry.icon && 'border-transparent'
+                  !expiry.icon && 'border-transparent' // Or a default border color like 'border-muted'
                 )}>
                   <h3 className="text-lg font-semibold text-foreground">{item.name}</h3>
                   <p className="text-sm text-muted-foreground">Quantity: {item.quantity}</p>
