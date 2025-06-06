@@ -24,6 +24,7 @@ export default function PantryManagerClient() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemQuantity, setNewItemQuantity] = useState('');
   const [newItemExpiryDate, setNewItemExpiryDate] = useState('');
+  const [manualBarcode, setManualBarcode] = useState('');
   
   const [editingItem, setEditingItem] = useState<PantryItem | null>(null);
   const [editItemName, setEditItemName] = useState('');
@@ -75,6 +76,13 @@ export default function PantryManagerClient() {
     }
     controlsRef.current = null;
 
+    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
+        try {
+          codeReaderRef.current.reset();
+        } catch(e) { console.warn("Error resetting code reader:", e); }
+    }
+    // codeReaderRef.current = null; // Null out to force re-creation
+
     if (streamForCleanupRef.current) {
       streamForCleanupRef.current.getTracks().forEach(track => track.stop());
       streamForCleanupRef.current = null;
@@ -83,13 +91,6 @@ export default function PantryManagerClient() {
     if (actualVideoRef.current && actualVideoRef.current.srcObject) {
       actualVideoRef.current.srcObject = null;
     }
-    
-    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
-      try {
-        codeReaderRef.current.reset();
-      } catch(e) { console.warn("Error resetting code reader:", e); }
-    }
-    codeReaderRef.current = null; 
   }, []);
 
 
@@ -99,15 +100,16 @@ export default function PantryManagerClient() {
     const knownItemName = barcodeDb[scannedValue];
     if (knownItemName) {
       setNewItemName(knownItemName);
+      setManualBarcode(scannedValue);
       toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
-      setLastScannedBarcode(null); 
     } else {
       setNewItemName(scannedValue); 
+      setManualBarcode(scannedValue);
       toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name or use as is.` });
-      setLastScannedBarcode(scannedValue); 
     }
+    setLastScannedBarcode(scannedValue); 
     setIsScannerOpen(false); 
-  }, [barcodeDb, toast, setIsScannerOpen, setNewItemName, setLastScannedBarcode]);
+  }, [barcodeDb, toast, setIsScannerOpen, setNewItemName, setLastScannedBarcode, setManualBarcode]);
   
   const handleScanError = useCallback((error: any) => {
     if (!isScannerOpenRef.current) return;
@@ -115,19 +117,16 @@ export default function PantryManagerClient() {
     console.debug("ZXing scan attempt error:", error?.message || error);
 
     if (error instanceof NotFoundException || error instanceof ChecksumException || error instanceof FormatException) {
-      // These are expected errors if no barcode is found or it's unreadable.
-      // Do not flood UI with these.
-      if (scannerError && !scannerError.includes("Point camera at barcode")) {
-          setScannerError(null); // Clear any previous sticky errors if we are now just "not found"
+       if (scannerError && !scannerError.includes("Point camera at barcode")) {
+          setScannerError(null); 
       }
       return; 
     }
-    // For other, unexpected errors during active scan:
     console.error("Barcode scanning error during active scan:", error);
     if (isScannerOpenRef.current) { 
         setScannerError(`Error during barcode scanning: ${error.message || "Unknown error"}`);
     }
-  }, [scannerError, setScannerError]); 
+  }, [scannerError]); 
 
   useEffect(() => {
     if (!isScannerOpen) {
@@ -184,12 +183,11 @@ export default function PantryManagerClient() {
                     BarcodeFormat.UPC_E,
                     BarcodeFormat.EAN_13,
                     BarcodeFormat.EAN_8,
-                    BarcodeFormat.CODE_128, // A common general-purpose format
+                    BarcodeFormat.CODE_128,
                 ];
                 hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
                 hints.set(DecodeHintType.TRY_HARDER, true);
                 
-                // Ensure a fresh reader instance
                 codeReaderRef.current = new BrowserCodeReader(hints); 
                                 
                 if (codeReaderRef.current && actualVideoRef.current && isScannerOpenRef.current) { 
@@ -247,7 +245,6 @@ export default function PantryManagerClient() {
     return () => { 
       stopCurrentScan();
     };
-  // Removed handleScanSuccess and handleScanError from dependencies to prevent flickering
   }, [isScannerOpen, isVideoElementReady, stopCurrentScan]);
 
 
@@ -257,8 +254,8 @@ export default function PantryManagerClient() {
       return;
     }
     
-    const capturedLastScannedBarcode = lastScannedBarcode; 
     const currentNewItemName = newItemName.trim();
+    const currentManualBarcode = manualBarcode.trim();
 
     const newItem: PantryItem = {
       id: Date.now().toString(),
@@ -269,20 +266,39 @@ export default function PantryManagerClient() {
     };
     setPantryItems(prevItems => [...prevItems, newItem]);
 
-    if (capturedLastScannedBarcode && currentNewItemName !== capturedLastScannedBarcode) {
-      setBarcodeDb(prevDb => ({ ...prevDb, [capturedLastScannedBarcode]: currentNewItemName }));
-      toast({ title: "Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${capturedLastScannedBarcode}.`, variant: "default" });
-    } else if (capturedLastScannedBarcode && currentNewItemName === capturedLastScannedBarcode){
-       toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name next time.`, variant: "default" });
+    let barcodeToAssociate: string | null = null;
+    let associationMade = false;
+
+    // Prefer scanned barcode if available and name is being set
+    if (lastScannedBarcode && currentNewItemName !== lastScannedBarcode) {
+        barcodeToAssociate = lastScannedBarcode;
+    } 
+    // Else, use manual barcode if available and name is being set
+    else if (currentManualBarcode && currentNewItemName !== currentManualBarcode) {
+        barcodeToAssociate = currentManualBarcode;
     }
-    else { 
-      toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
+
+    if (barcodeToAssociate) {
+        setBarcodeDb(prevDb => ({ ...prevDb, [barcodeToAssociate!]: currentNewItemName }));
+        toast({ title: "Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${barcodeToAssociate}.`, variant: "default" });
+        associationMade = true;
+    }
+    
+    if (!associationMade) { 
+        if (lastScannedBarcode && currentNewItemName === lastScannedBarcode) {
+            toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name.`, variant: "default" });
+        } else if (currentManualBarcode && currentNewItemName === currentManualBarcode) {
+            toast({ title: "Item Added", description: `Item with barcode ${currentNewItemName} added. Consider giving it a more descriptive name.`, variant: "default" });
+        } else {
+             toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
+        }
     }
     
     setNewItemName('');
     setNewItemQuantity('');
     setNewItemExpiryDate('');
-    setLastScannedBarcode(null); 
+    setLastScannedBarcode(null);
+    setManualBarcode(''); 
   };
 
   const handleStartEdit = (item: PantryItem) => {
@@ -350,14 +366,24 @@ export default function PantryManagerClient() {
     <div className="space-y-8">
       <GlassCard className="p-6 md:p-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground">Add New Item</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 items-end">
-          <div className="sm:col-span-2 md:col-span-1">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-end">
+          <div>
             <Label htmlFor="newItemName">Item Name</Label>
             <Input
               id="newItemName"
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
               placeholder="e.g., Milk, Eggs or scanned barcode"
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="manualBarcode">Enter Barcode (Optional)</Label>
+            <Input
+              id="manualBarcode"
+              value={manualBarcode}
+              onChange={(e) => setManualBarcode(e.target.value)}
+              placeholder="e.g., 123456789012"
               className="mt-1"
             />
           </div>
@@ -381,7 +407,7 @@ export default function PantryManagerClient() {
               className="mt-1"
             />
           </div>
-          <div className="flex space-x-2 items-center">
+          <div className="sm:col-span-2 flex space-x-2 items-center">
             <Button onClick={handleAddItem} className="w-full sm:w-auto flex-grow">
               <PlusCircle className="mr-2 h-5 w-5" /> Add Item
             </Button>
@@ -438,7 +464,7 @@ export default function PantryManagerClient() {
                     )}
                      { (hasCameraPermission === true && !scannerError) && (
                         <p className="mt-2 text-xs text-center text-muted-foreground">
-                            Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances.
+                           Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances.
                         </p>
                     )}
                 </div>
@@ -558,7 +584,3 @@ export default function PantryManagerClient() {
     </div>
   );
 }
-
-    
-
-    
