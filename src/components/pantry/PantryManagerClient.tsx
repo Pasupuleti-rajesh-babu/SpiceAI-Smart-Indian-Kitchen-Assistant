@@ -68,6 +68,7 @@ export default function PantryManagerClient() {
   }, []);
 
   const stopCurrentScan = useCallback(() => {
+    // Stop scanner controls first
     if (controlsRef.current && typeof controlsRef.current.stop === 'function') {
       try {
         controlsRef.current.stop();
@@ -77,6 +78,18 @@ export default function PantryManagerClient() {
     }
     controlsRef.current = null;
 
+    // Stop and release the media stream
+    if (streamForCleanupRef.current) {
+      streamForCleanupRef.current.getTracks().forEach(track => track.stop());
+      streamForCleanupRef.current = null;
+    }
+
+    // Clear the video source
+    if (actualVideoRef.current && actualVideoRef.current.srcObject) {
+        actualVideoRef.current.srcObject = null;
+    }
+    
+    // Reset the BrowserCodeReader instance
     if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
       try {
         codeReaderRef.current.reset();
@@ -84,16 +97,7 @@ export default function PantryManagerClient() {
         console.warn("Error resetting code reader:", e);
       }
     }
-    // codeReaderRef.current = null; // Let the main effect handle re-creation
-
-    if (actualVideoRef.current && actualVideoRef.current.srcObject) {
-        actualVideoRef.current.srcObject = null;
-    }
-
-    if (streamForCleanupRef.current) {
-      streamForCleanupRef.current.getTracks().forEach(track => track.stop());
-      streamForCleanupRef.current = null;
-    }
+    codeReaderRef.current = null; // Ensure it's null for re-creation
   }, []);
 
 
@@ -110,20 +114,24 @@ export default function PantryManagerClient() {
       toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name or use as is.` });
       setLastScannedBarcode(scannedValue); 
     }
-    setIsScannerOpen(false); 
+    setIsScannerOpen(false); // This will trigger the useEffect cleanup
   }, [barcodeDb, toast, setIsScannerOpen, setNewItemName, setLastScannedBarcode]);
   
   const handleScanError = useCallback((error: any) => {
     if (!isScannerOpenRef.current) return;
+    
+    // Log all errors for debugging, even "expected" ones
+    console.debug("ZXing scan attempt error:", error?.message || error);
 
     if (error instanceof NotFoundException || error instanceof ChecksumException || error instanceof FormatException) {
-      // These are expected errors if no barcode is found or it's unreadable. Don't flood UI with these.
-      // console.debug("ZXing scan error (expected):", error.message);
+      // These are expected errors if no barcode is found or it's unreadable. 
+      // Do not flood UI with these, but good to log them for debugging.
       if (isScannerOpenRef.current && hasCameraPermission === true && !scannerError?.includes("No barcode found")) { 
          // setScannerError("No barcode found or unable to read. Try adjusting position/lighting."); // Potentially too noisy
       }
       return; 
     }
+    // For other, unexpected errors during active scan:
     console.error("Barcode scanning error during active scan:", error);
     if (isScannerOpenRef.current) { 
         setScannerError(`Error during barcode scanning: ${error.message || "Unknown error"}`);
@@ -133,32 +141,35 @@ export default function PantryManagerClient() {
   useEffect(() => {
     if (!isScannerOpen) {
       stopCurrentScan();
+      // Reset states only if they were previously set, to avoid flicker on initial mount
       if (hasCameraPermission !== null || scannerError !== null) { 
         setHasCameraPermission(null);
         setScannerError(null);
       }
-      return;
+      return; // Exit early if scanner is not supposed to be open
     }
 
+    // Only proceed if scanner is open AND video element is ready
     if (isScannerOpen && isVideoElementReady && actualVideoRef.current) {
-      let localCodeReader: BrowserCodeReader | null = null;
       
       const initializeCameraAndScanner = async () => {
-        stopCurrentScan(); 
-        if (!isScannerOpenRef.current) return; 
+        if (!isScannerOpenRef.current) return; // Double check, in case state changed during async ops
+
+        stopCurrentScan(); // Ensure clean state before starting
 
         setScannerError(null); 
-        setHasCameraPermission(null); 
+        setHasCameraPermission(null); // Indicate loading state
 
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          if (!isScannerOpenRef.current) { 
+          if (!isScannerOpenRef.current) { // Check again after await
             stream.getTracks().forEach(track => track.stop());
             return;
           }
           streamForCleanupRef.current = stream; 
 
           if (!actualVideoRef.current) { 
+             if (isScannerOpenRef.current) setScannerError("Video element became unavailable.");
              stopCurrentScan();
              return;
           }
@@ -171,29 +182,33 @@ export default function PantryManagerClient() {
             }
             try {
                 await actualVideoRef.current!.play(); 
-                if (!isScannerOpenRef.current) { 
+                if (!isScannerOpenRef.current) { // Check again after play
                     stopCurrentScan();
                     return;
                 }
                 setHasCameraPermission(true); 
-                setScannerError(null); 
+                setScannerError(null); // Clear any previous setup error
                 
                 const hints = new Map();
                 const formats = [
                     BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.CODE_128, 
                     BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.DATA_MATRIX, 
                     BarcodeFormat.ITF, BarcodeFormat.CODABAR, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
+                    // Add other formats if needed
                 ];
                 hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
                 hints.set(DecodeHintType.TRY_HARDER, true);
 
-                localCodeReader = new BrowserCodeReader(hints); 
-                codeReaderRef.current = localCodeReader;
+                // Create a new reader instance each time
+                codeReaderRef.current = new BrowserCodeReader(hints); 
                                 
-                if (localCodeReader && actualVideoRef.current && isScannerOpenRef.current) { 
-                    controlsRef.current = localCodeReader.decodeFromVideoElement(
+                if (codeReaderRef.current && actualVideoRef.current && isScannerOpenRef.current) { 
+                    // Start decoding from the video element.
+                    // Important: This callback will be invoked continuously.
+                    controlsRef.current = codeReaderRef.current.decodeFromVideoElement(
                         actualVideoRef.current,
                         (result: Result | undefined, error: any) => {
+                          // Check isScannerOpenRef inside the callback, as it might have closed.
                           if (!isScannerOpenRef.current) return; 
                           if (result) {
                             handleScanSuccess(result.getText());
@@ -242,11 +257,11 @@ export default function PantryManagerClient() {
       initializeCameraAndScanner();
     }
     
+    // Cleanup function for the useEffect hook
     return () => { 
       stopCurrentScan();
-      codeReaderRef.current = null; // Clear ref on unmount/cleanup
     };
-  }, [isScannerOpen, isVideoElementReady, stopCurrentScan]);
+  }, [isScannerOpen, isVideoElementReady, stopCurrentScan, handleScanSuccess, handleScanError]); // Added handleScanSuccess, handleScanError back as they are used in the effect scope now
 
 
   const handleAddItem = () => {
@@ -399,7 +414,7 @@ export default function PantryManagerClient() {
                         ref={videoCallbackRef} 
                         className="h-full w-full object-cover" 
                         playsInline 
-                        autoPlay
+                        autoPlay // Added autoPlay for good measure
                         muted 
                     />
                     
@@ -555,3 +570,5 @@ export default function PantryManagerClient() {
     </div>
   );
 }
+
+    
