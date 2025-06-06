@@ -2,7 +2,8 @@
 export interface PantryItem {
   id: string;
   name: string;
-  quantity: string; 
-  expiryDate?: string; 
+  quantity?: string; // Made quantity optional
+  expiryDate?: string;
   addedDate: string;
 }
+

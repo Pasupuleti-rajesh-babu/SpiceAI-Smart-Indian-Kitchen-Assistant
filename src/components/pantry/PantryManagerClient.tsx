@@ -15,17 +15,17 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from '@/lib/utils';
-import { 
-  Html5QrcodeScanner, 
-  Html5QrcodeScanType, 
-  QrcodeErrorCallback, 
+import {
+  Html5QrcodeScanner,
+  Html5QrcodeScanType,
+  QrcodeErrorCallback,
   QrcodeSuccessCallback,
   Html5QrcodeSupportedFormats
 } from 'html5-qrcode';
 
 type BarcodeDatabase = { [barcode: string]: string };
 const HTML5_QRCODE_READER_ID = "html5-qrcode-reader";
-const INTERNAL_API_LOOKUP_URL = "/api/lookup-barcode"; // Changed to internal API route
+const INTERNAL_API_LOOKUP_URL = "/api/lookup-barcode";
 
 interface UpcItemDbResponse {
   code: string;
@@ -71,7 +71,7 @@ export default function PantryManagerClient() {
   const [newItemQuantity, setNewItemQuantity] = useState('');
   const [newItemExpiryDate, setNewItemExpiryDate] = useState('');
   const [manualBarcode, setManualBarcode] = useState('');
-  
+
   const [editingItem, setEditingItem] = useState<PantryItem | null>(null);
   const [editItemName, setEditItemName] = useState('');
   const [editItemQuantity, setEditItemQuantity] = useState('');
@@ -85,7 +85,7 @@ export default function PantryManagerClient() {
   const html5QrCodeScannerRef = useRef<Html5QrcodeScanner | null>(null);
   const isScannerOpenRef = useRef(isScannerOpen);
   const [scannerMessage, setScannerMessage] = useState<string | null>(null);
-    
+
   const [barcodeDb, setBarcodeDb] = useLocalStorage<BarcodeDatabase>(BARCODE_DATABASE_KEY, {});
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
   const [isApiLoading, setIsApiLoading] = useState(false);
@@ -102,7 +102,7 @@ export default function PantryManagerClient() {
     setIsApiLoading(true);
     setScannerMessage(`Looking up barcode ${barcode}...`);
     try {
-      const response = await fetch(INTERNAL_API_LOOKUP_URL, { // Using internal API route
+      const response = await fetch(INTERNAL_API_LOOKUP_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -110,13 +110,12 @@ export default function PantryManagerClient() {
         body: JSON.stringify({ upc: barcode }),
       });
 
-      const data: UpcItemDbResponse = await response.json(); // Always expect JSON from our internal API
+      const data: UpcItemDbResponse = await response.json();
 
       if (!response.ok) {
-        // Our internal API should forward the status and message from UPCItemDB or its own error
         throw new Error(data.message || `API error: ${response.status}`);
       }
-      
+
       if (data.code === "OK" && data.items && data.items.length > 0 && data.items[0].title) {
         const productTitle = data.items[0].title;
         setNewItemName(productTitle);
@@ -126,21 +125,31 @@ export default function PantryManagerClient() {
       } else if (data.code === "OK" && data.items && data.items.length === 0) {
         toast({ title: "Barcode Scanned", description: `No product details found for ${barcode}. Please enter name manually.`, variant: "default" });
         setScannerMessage(`No details for ${barcode}. Add manually.`);
-        setNewItemName(''); 
+        setNewItemName('');
       } else {
          toast({ title: "API Issue", description: data.message || `Could not retrieve details for ${barcode}.`, variant: "destructive" });
          setScannerMessage(`API Issue: ${data.message || 'Try again'}.`);
          setNewItemName('');
       }
     } catch (error: any) {
-      console.warn("Error looking up barcode via internal API:", error);
-      const description = error.message || "Failed to lookup barcode. Please enter name manually.";
-      toast({ 
-        title: "API Error", 
-        description: description, 
-        variant: "destructive" 
-      });
-      setScannerMessage(`API Error: ${description}. Add manually.`);
+      const isNetworkError = error.message === "Failed to fetch";
+      if (isNetworkError) {
+        console.warn("Error looking up barcode via internal API (Failed to fetch):", error.message);
+        toast({
+          title: "Network Error or API Issue",
+          description: "Could not connect to the lookup service. Please check your internet connection or try again later. This could also be a temporary API or CORS issue.",
+          variant: "destructive"
+        });
+        setScannerMessage(`API Error: Network issue or CORS. Add manually.`);
+      } else {
+        console.error("Error looking up barcode via internal API:", error.message);
+        toast({
+          title: "API Error",
+          description: error.message || "Failed to lookup barcode. Please enter name manually.",
+          variant: "destructive"
+        });
+        setScannerMessage(`API Error: ${error.message || 'Unknown error'}. Add manually.`);
+      }
       setNewItemName('');
     } finally {
       setIsApiLoading(false);
@@ -153,34 +162,34 @@ export default function PantryManagerClient() {
     if (!isScannerOpenRef.current) return;
 
     console.log(`Scan result: ${decodedText}`, decodedResult);
-    setManualBarcode(decodedText); 
+    setManualBarcode(decodedText);
     setLastScannedBarcode(decodedText);
-    
+
     const knownItemName = barcodeDb[decodedText];
     if (knownItemName) {
         setNewItemName(knownItemName);
         toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
         setScannerMessage(`Found in your records: ${knownItemName}`);
     } else {
-        await lookupBarcodeOnApi(decodedText); 
+        await lookupBarcodeOnApi(decodedText);
     }
-    
-    setIsScannerOpen(false); 
+
+    setIsScannerOpen(false);
   }, [barcodeDb, toast, setIsScannerOpen, setLastScannedBarcode, setNewItemName, setManualBarcode, lookupBarcodeOnApi]);
 
   const onScanFailure: QrcodeErrorCallback = useCallback((errorMessage) => {
       if (!isScannerOpenRef.current) return;
-      
-      const lowerError = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : '';
+
+      const lowerError = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : JSON.stringify(errorMessage).toLowerCase();
       const typicalNotFoundMessages = [
-        "notfoundexception", 
+        "notfoundexception",
         "no multiformat readers were able to detect the code",
         "qr code no longer detected",
-        "unable to query supported devices", 
+        "unable to query supported devices",
         "insufficient vision",
         "no barcode or qr code detected"
       ];
-      
+
       const isTypicalNotFound = typicalNotFoundMessages.some(msg => lowerError.includes(msg));
 
       if (isTypicalNotFound) {
@@ -222,7 +231,7 @@ export default function PantryManagerClient() {
                 return { width: qrboxSize, height: qrboxSize };
               },
               supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
-              formatsToSupport: [ 
+              formatsToSupport: [
                 Html5QrcodeSupportedFormats.UPC_A,
                 Html5QrcodeSupportedFormats.UPC_E,
                 Html5QrcodeSupportedFormats.EAN_13,
@@ -230,9 +239,9 @@ export default function PantryManagerClient() {
                 Html5QrcodeSupportedFormats.CODE_128,
               ],
             },
-            false 
+            false
           );
-          
+
           try {
             scanner.render(onScanSuccess, onScanFailure);
             if (isScannerOpenRef.current) {
@@ -241,12 +250,12 @@ export default function PantryManagerClient() {
             html5QrCodeScannerRef.current = scanner;
           } catch (renderError: any) {
             console.error("Error calling Html5QrcodeScanner.render():", renderError);
-            if (isScannerOpenRef.current) { 
+            if (isScannerOpenRef.current) {
                setScannerMessage(`Error starting scanner: ${renderError.message || "Unknown error"}`);
             }
           }
         }
-      }, 0); 
+      }, 0);
 
     } else {
       if (html5QrCodeScannerRef.current) {
@@ -256,19 +265,19 @@ export default function PantryManagerClient() {
           });
         html5QrCodeScannerRef.current = null;
       }
-      setScannerMessage(null); 
+      setScannerMessage(null);
     }
-    
+
     return () => {
       if (timerId) {
         clearTimeout(timerId);
       }
-      if (html5QrCodeScannerRef.current && !isScannerOpenRef.current) { 
+      if (html5QrCodeScannerRef.current && !isScannerOpenRef.current) {
          html5QrCodeScannerRef.current.clear().catch(err => console.warn("Scanner clear failed on effect cleanup:", err));
          html5QrCodeScannerRef.current = null;
       }
     };
-  }, [isScannerOpen, onScanSuccess, onScanFailure]); 
+  }, [isScannerOpen, onScanSuccess, onScanFailure]);
 
   useEffect(() => {
     return () => {
@@ -284,33 +293,34 @@ export default function PantryManagerClient() {
 
 
   const handleAddItem = () => {
-    if (!newItemName.trim() || !newItemQuantity.trim()) {
-      toast({ title: "Missing Information", description: "Please provide item name and quantity.", variant: "destructive" });
+    if (!newItemName.trim()) {
+      toast({ title: "Missing Item Name", description: "Please provide the item name.", variant: "destructive" });
       return;
     }
-    
+
     const currentNewItemName = newItemName.trim();
     const currentManualBarcode = manualBarcode.trim();
+    const currentNewItemQuantity = newItemQuantity.trim();
 
     const newItem: PantryItem = {
       id: Date.now().toString(),
       name: currentNewItemName,
-      quantity: newItemQuantity.trim(),
+      quantity: currentNewItemQuantity || undefined, // Store as undefined if empty
       expiryDate: newItemExpiryDate || undefined,
       addedDate: new Date().toISOString(),
     };
     setPantryItems(prevItems => [...prevItems, newItem]);
 
     let barcodeToAssociate: string | null = null;
-    
+
     if (currentManualBarcode && currentNewItemName !== currentManualBarcode) {
         barcodeToAssociate = currentManualBarcode;
-    } 
+    }
     else if (lastScannedBarcode && currentNewItemName !== lastScannedBarcode && (!currentManualBarcode || currentNewItemName === currentManualBarcode)) {
         barcodeToAssociate = lastScannedBarcode;
     }
 
-    if (barcodeToAssociate && barcodeDb[barcodeToAssociate] !== currentNewItemName) { 
+    if (barcodeToAssociate && barcodeDb[barcodeToAssociate] !== currentNewItemName) {
         setBarcodeDb(prevDb => ({ ...prevDb, [barcodeToAssociate!]: currentNewItemName }));
         toast({ title: "Item Added & Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${barcodeToAssociate}.`, variant: "default" });
     } else if (barcodeToAssociate && barcodeDb[barcodeToAssociate] === currentNewItemName) {
@@ -319,7 +329,7 @@ export default function PantryManagerClient() {
      else {
       toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
     }
-    
+
     setNewItemName('');
     setNewItemQuantity('');
     setNewItemExpiryDate('');
@@ -330,19 +340,20 @@ export default function PantryManagerClient() {
   const handleStartEdit = (item: PantryItem) => {
     setEditingItem(item);
     setEditItemName(item.name);
-    setEditItemQuantity(item.quantity);
+    setEditItemQuantity(item.quantity || '');
     setEditItemExpiryDate(item.expiryDate || '');
   };
 
   const handleSaveEdit = () => {
-    if (!editingItem || !editItemName.trim() || !editItemQuantity.trim()) {
-      toast({ title: "Missing Information", description: "Please provide item name and quantity for the edit.", variant: "destructive" });
+    if (!editingItem || !editItemName.trim()) {
+      toast({ title: "Missing Item Name", description: "Please provide the item name for the edit.", variant: "destructive" });
       return;
     }
+    const currentEditItemQuantity = editItemQuantity.trim();
     setPantryItems(
       pantryItems.map((item) =>
         item.id === editingItem.id
-          ? { ...item, name: editItemName.trim(), quantity: editItemQuantity.trim(), expiryDate: editItemExpiryDate || undefined }
+          ? { ...item, name: editItemName.trim(), quantity: currentEditItemQuantity || undefined, expiryDate: editItemExpiryDate || undefined }
           : item
       )
     );
@@ -362,9 +373,9 @@ export default function PantryManagerClient() {
     if (!expiryDate) return { text: 'No expiry date', icon: null, color: 'text-muted-foreground' };
     const date = parseISO(expiryDate);
     if (!isValid(date)) return { text: 'Invalid date', icon: AlertTriangle, color: 'text-yellow-500' };
-    
+
     const today = new Date();
-    today.setHours(0,0,0,0); 
+    today.setHours(0,0,0,0);
     const daysLeft = differenceInDays(date, today);
 
     if (daysLeft < 0) return { text: `Expired ${Math.abs(daysLeft)} days ago`, icon: AlertTriangle, color: 'text-red-600 font-semibold' };
@@ -375,7 +386,7 @@ export default function PantryManagerClient() {
   const filteredItems = pantryItems
     .filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
-      const aDate = a.expiryDate && isValid(parseISO(a.expiryDate)) ? parseISO(a.expiryDate) : new Date(8640000000000000); 
+      const aDate = a.expiryDate && isValid(parseISO(a.expiryDate)) ? parseISO(a.expiryDate) : new Date(8640000000000000);
       const bDate = b.expiryDate && isValid(parseISO(b.expiryDate)) ? parseISO(b.expiryDate) : new Date(8640000000000000);
       return differenceInDays(aDate, bDate);
     });
@@ -387,7 +398,7 @@ export default function PantryManagerClient() {
       </GlassCard>
     );
   }
-  
+
   return (
     <div className="space-y-8">
       <GlassCard className="p-6 md:p-8">
@@ -416,7 +427,7 @@ export default function PantryManagerClient() {
             />
           </div>
           <div>
-            <Label htmlFor="newItemQuantity">Quantity</Label>
+            <Label htmlFor="newItemQuantity">Quantity (Optional)</Label>
             <Input
               id="newItemQuantity"
               value={newItemQuantity}
@@ -456,17 +467,17 @@ export default function PantryManagerClient() {
                   <div id={HTML5_QRCODE_READER_ID} className="w-full min-h-[250px] rounded-md border bg-muted overflow-hidden">
                   </div>
                   {scannerMessage && (
-                     <Alert 
-                        variant={scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") || scannerMessage.startsWith("API Error") || scannerMessage.startsWith("API Issue") ? "destructive" : "default"} 
+                     <Alert
+                        variant={scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") || scannerMessage.startsWith("API Error") || scannerMessage.startsWith("API Issue") ? "destructive" : "default"}
                         className="mt-4"
                     >
-                        {scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? <AlertTriangle className="h-5 w-5" /> : 
+                        {scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? <AlertTriangle className="h-5 w-5" /> :
                          scannerMessage.startsWith("API Error") || scannerMessage.startsWith("API Issue") ? <AlertTriangle className="h-5 w-5" /> :
-                         scannerMessage.startsWith("Looking up") ? <Loader2 className="h-5 w-5 animate-spin" /> : 
-                         scannerMessage.startsWith("Found:") ? <CheckCircle className="h-5 w-5" /> : 
+                         scannerMessage.startsWith("Looking up") ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                         scannerMessage.startsWith("Found:") ? <CheckCircle className="h-5 w-5" /> :
                          <Info className="h-5 w-5" />}
                         <AlertTitle>
-                            {scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? "Scanning Issue" : 
+                            {scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? "Scanning Issue" :
                              scannerMessage.startsWith("API Error") || scannerMessage.startsWith("API Issue") ? "API Problem" :
                              scannerMessage.startsWith("Looking up") ? "Processing" :
                              scannerMessage.startsWith("Found:") ? "Success" :
@@ -509,21 +520,21 @@ export default function PantryManagerClient() {
             {filteredItems.map((item) => {
               const expiry = getExpiryStatus(item.expiryDate);
               return (
-                <GlassCard key={item.id} className={cn("p-4 space-y-2 border-l-4", 
+                <GlassCard key={item.id} className={cn("p-4 space-y-2 border-l-4",
                   expiry.color === 'text-red-600 font-semibold' && 'border-red-500',
                   expiry.color === 'text-yellow-500' && 'border-yellow-500',
                   expiry.color === 'text-green-500' && 'border-green-500',
-                  !expiry.icon && 'border-transparent' 
+                  !expiry.icon && 'border-transparent'
                 )}>
                   <h3 className="text-lg font-semibold text-foreground">{item.name}</h3>
-                  <p className="text-sm text-muted-foreground">Quantity: {item.quantity}</p>
+                  <p className="text-sm text-muted-foreground">Quantity: {item.quantity || 'N/A'}</p>
                   <div className="flex items-center text-sm">
                     {expiry.icon && <expiry.icon className={cn("mr-1.5 h-4 w-4", expiry.color)} />}
                     <span className={cn(expiry.color)}>{expiry.text}</span>
                   </div>
                   <p className="text-xs text-muted-foreground/80">Added: {format(parseISO(item.addedDate), 'MMM dd, yyyy')}</p>
                   <div className="flex space-x-2 pt-2">
-                    
+
                         <Button
                         variant="outline"
                         size="sm"
@@ -563,7 +574,7 @@ export default function PantryManagerClient() {
                 />
               </div>
               <div>
-                <Label htmlFor="editItemQuantity">Quantity</Label>
+                <Label htmlFor="editItemQuantity">Quantity (Optional)</Label>
                 <Input
                   id="editItemQuantity"
                   value={editItemQuantity}
@@ -572,7 +583,7 @@ export default function PantryManagerClient() {
                 />
               </div>
               <div>
-                <Label htmlFor="editItemExpiryDate">Expiry Date</Label>
+                <Label htmlFor="editItemExpiryDate">Expiry Date (Optional)</Label>
                 <Input
                   id="editItemExpiryDate"
                   type="date"
@@ -592,3 +603,4 @@ export default function PantryManagerClient() {
     </div>
   );
 }
+
