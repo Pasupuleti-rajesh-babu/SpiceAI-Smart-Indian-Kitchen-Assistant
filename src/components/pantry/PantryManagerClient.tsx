@@ -84,7 +84,7 @@ export default function PantryManagerClient() {
         console.warn("Error resetting code reader:", e);
       }
     }
-    // codeReaderRef.current = null; // Nullify here to ensure it's re-created
+    // codeReaderRef.current = null; // Let the main effect handle re-creation
 
     if (actualVideoRef.current && actualVideoRef.current.srcObject) {
         actualVideoRef.current.srcObject = null;
@@ -117,22 +117,22 @@ export default function PantryManagerClient() {
     if (!isScannerOpenRef.current) return;
 
     if (error instanceof NotFoundException || error instanceof ChecksumException || error instanceof FormatException) {
+      // These are expected errors if no barcode is found or it's unreadable. Don't flood UI with these.
+      // console.debug("ZXing scan error (expected):", error.message);
       if (isScannerOpenRef.current && hasCameraPermission === true && !scannerError?.includes("No barcode found")) { 
-         // Only set a mild error if no major setup error exists
          // setScannerError("No barcode found or unable to read. Try adjusting position/lighting."); // Potentially too noisy
       }
       return; 
     }
     console.error("Barcode scanning error during active scan:", error);
     if (isScannerOpenRef.current) { 
-        setScannerError("Error during barcode scanning. Try adjusting camera, lighting, or ensure only one barcode is visible.");
+        setScannerError(`Error during barcode scanning: ${error.message || "Unknown error"}`);
     }
   }, [hasCameraPermission, scannerError, setScannerError]); 
 
   useEffect(() => {
     if (!isScannerOpen) {
       stopCurrentScan();
-      codeReaderRef.current = null; // Ensure it's cleared for recreation
       if (hasCameraPermission !== null || scannerError !== null) { 
         setHasCameraPermission(null);
         setScannerError(null);
@@ -141,10 +141,10 @@ export default function PantryManagerClient() {
     }
 
     if (isScannerOpen && isVideoElementReady && actualVideoRef.current) {
-      const videoElement = actualVideoRef.current;
+      let localCodeReader: BrowserCodeReader | null = null;
       
       const initializeCameraAndScanner = async () => {
-        stopCurrentScan(); // Always stop previous before starting
+        stopCurrentScan(); 
         if (!isScannerOpenRef.current) return; 
 
         setScannerError(null); 
@@ -162,15 +162,15 @@ export default function PantryManagerClient() {
              stopCurrentScan();
              return;
           }
-          videoElement.srcObject = stream;
+          actualVideoRef.current.srcObject = stream;
           
-          videoElement.onloadedmetadata = async () => {
+          actualVideoRef.current.onloadedmetadata = async () => {
             if (!isScannerOpenRef.current || !actualVideoRef.current) {
               stopCurrentScan();
               return;
             }
             try {
-                await videoElement.play(); 
+                await actualVideoRef.current!.play(); 
                 if (!isScannerOpenRef.current) { 
                     stopCurrentScan();
                     return;
@@ -178,20 +178,20 @@ export default function PantryManagerClient() {
                 setHasCameraPermission(true); 
                 setScannerError(null); 
                 
-                // Create a new BrowserCodeReader instance with hints
                 const hints = new Map();
                 const formats = [
                     BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.CODE_128, 
-                    BarcodeFormat.UPC_A, BarcodeFormat.DATA_MATRIX, BarcodeFormat.ITF,
-                    BarcodeFormat.CODABAR, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
+                    BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.DATA_MATRIX, 
+                    BarcodeFormat.ITF, BarcodeFormat.CODABAR, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
                 ];
                 hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-                hints.set(DecodeHintType.TRY_HARDER, true); // TRY_HARDER is a hint
+                hints.set(DecodeHintType.TRY_HARDER, true);
 
-                codeReaderRef.current = new BrowserCodeReader(hints); // Pass hints map
+                localCodeReader = new BrowserCodeReader(hints); 
+                codeReaderRef.current = localCodeReader;
                                 
-                if (codeReaderRef.current && actualVideoRef.current) { 
-                    controlsRef.current = codeReaderRef.current.decodeFromVideoElement(
+                if (localCodeReader && actualVideoRef.current && isScannerOpenRef.current) { 
+                    controlsRef.current = localCodeReader.decodeFromVideoElement(
                         actualVideoRef.current,
                         (result: Result | undefined, error: any) => {
                           if (!isScannerOpenRef.current) return; 
@@ -208,14 +208,14 @@ export default function PantryManagerClient() {
             } catch (playError: any) {
                 console.error('Error playing video:', playError);
                 if(isScannerOpenRef.current) {
-                    setScannerError(`Could not play video stream. ${playError.message || ""}`.trim());
+                    setScannerError(`Could not play video stream: ${playError.message || "Unknown error"}`.trim());
                     setHasCameraPermission(false);
                 }
                 stopCurrentScan(); 
             }
           };
 
-          videoElement.onerror = (e) => { 
+          actualVideoRef.current.onerror = (e) => { 
             if(isScannerOpenRef.current) {
                 console.error('Video element encountered an error', e);
                 setScannerError("Video element encountered an error.");
@@ -244,9 +244,9 @@ export default function PantryManagerClient() {
     
     return () => { 
       stopCurrentScan();
-      codeReaderRef.current = null;
+      codeReaderRef.current = null; // Clear ref on unmount/cleanup
     };
-  }, [isScannerOpen, isVideoElementReady, stopCurrentScan, handleScanSuccess, handleScanError]);
+  }, [isScannerOpen, isVideoElementReady, stopCurrentScan]);
 
 
   const handleAddItem = () => {
@@ -436,7 +436,7 @@ export default function PantryManagerClient() {
                     )}
                      { (hasCameraPermission === true && !scannerError) && (
                         <p className="mt-2 text-xs text-center text-muted-foreground">
-                            Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances.
+                            Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances for best results.
                         </p>
                     )}
                 </div>
@@ -555,5 +555,3 @@ export default function PantryManagerClient() {
     </div>
   );
 }
-
-    
