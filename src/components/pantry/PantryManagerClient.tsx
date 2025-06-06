@@ -98,7 +98,7 @@ export default function PantryManagerClient() {
     isScannerOpenRef.current = isScannerOpen;
   }, [isScannerOpen]);
 
-  const lookupBarcodeOnApi = useCallback(async (barcode: string) => {
+  const lookupBarcodeOnApi = useCallback(async (barcode: string): Promise<string | null> => {
     setIsApiLoading(true);
     setScannerMessage(`Looking up barcode ${barcode}...`);
     try {
@@ -132,23 +132,31 @@ export default function PantryManagerClient() {
          setNewItemName('');
       }
     } catch (error: any) {
-      const isNetworkError = error.message === "Failed to fetch";
-      if (isNetworkError) {
-        console.warn("Error looking up barcode via internal API (Failed to fetch):", error.message);
+      const errorMessage = error.message || "Unknown error";
+      if (errorMessage.toLowerCase().includes("failed to fetch")) {
+        console.warn("Error looking up barcode via internal API (Failed to fetch):", errorMessage);
         toast({
           title: "Network Error or API Issue",
-          description: "Could not connect to the lookup service. Please check your internet connection or try again later. This could also be a temporary API or CORS issue.",
+          description: "Could not connect to the lookup service. Please check your internet connection or try again later. This could also be a temporary API or CORS issue if not using the proxy correctly.",
           variant: "destructive"
         });
-        setScannerMessage(`API Error: Network issue or CORS. Add manually.`);
+        setScannerMessage(`API Error: Network issue. Add manually.`);
+      } else if (errorMessage.toLowerCase().includes("exceed burst limit") || errorMessage.toLowerCase().includes("rate limit")) {
+        console.warn("Error looking up barcode via internal API (Rate Limit):", errorMessage);
+        toast({
+          title: "API Rate Limit Reached",
+          description: "You've made too many requests to the barcode lookup service. Please try again later.",
+          variant: "destructive"
+        });
+        setScannerMessage(`API Error: Rate limit. Add manually.`);
       } else {
-        console.error("Error looking up barcode via internal API:", error.message);
+        console.error("Error looking up barcode via internal API:", errorMessage);
         toast({
           title: "API Error",
-          description: error.message || "Failed to lookup barcode. Please enter name manually.",
+          description: errorMessage || "Failed to lookup barcode. Please enter name manually.",
           variant: "destructive"
         });
-        setScannerMessage(`API Error: ${error.message || 'Unknown error'}. Add manually.`);
+        setScannerMessage(`API Error: ${errorMessage}. Add manually.`);
       }
       setNewItemName('');
     } finally {
@@ -162,7 +170,7 @@ export default function PantryManagerClient() {
     if (!isScannerOpenRef.current) return;
 
     console.log(`Scan result: ${decodedText}`, decodedResult);
-    setManualBarcode(decodedText);
+    setManualBarcode(decodedText); // Populate manual barcode input with scanned value
     setLastScannedBarcode(decodedText);
 
     const knownItemName = barcodeDb[decodedText];
@@ -174,7 +182,7 @@ export default function PantryManagerClient() {
         await lookupBarcodeOnApi(decodedText);
     }
 
-    setIsScannerOpen(false);
+    setIsScannerOpen(false); // Close scanner on success
   }, [barcodeDb, toast, setIsScannerOpen, setLastScannedBarcode, setNewItemName, setManualBarcode, lookupBarcodeOnApi]);
 
   const onScanFailure: QrcodeErrorCallback = useCallback((errorMessage) => {
@@ -194,11 +202,15 @@ export default function PantryManagerClient() {
 
       if (isTypicalNotFound) {
         setScannerMessage(currentMsg => {
+            // Avoid overwriting important messages (like API results or actual errors) with "Point camera..."
             if (currentMsg && (currentMsg.startsWith("Scan Error:") || currentMsg.startsWith("Error starting scanner:") || currentMsg.startsWith("Looking up") || currentMsg.startsWith("Found:") || currentMsg.startsWith("API Error") || currentMsg.startsWith("API Issue") || currentMsg.startsWith("No details for"))) return currentMsg;
             return "Point camera at barcode.";
         });
       } else if (errorMessage) {
-        setScannerMessage(`Scan Error: ${typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage)}. Try adjusting position or lighting.`);
+        // For other errors, show them but don't make them overly alarming if they are just scanning attempts.
+        // We rely on the Alert variant to differentiate.
+        const msg = typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage);
+        setScannerMessage(`Scan Error: ${msg}. Try adjusting position or lighting.`);
       } else {
         setScannerMessage("Scanning... Point camera at barcode.");
       }
@@ -209,8 +221,9 @@ export default function PantryManagerClient() {
     let timerId: NodeJS.Timeout | null = null;
 
     if (isScannerOpen) {
+      // Use setTimeout to ensure the DOM element is available
       timerId = setTimeout(() => {
-        if (!isScannerOpenRef.current) return;
+        if (!isScannerOpenRef.current) return; // Check again in case it closed quickly
 
         const readerDiv = document.getElementById(HTML5_QRCODE_READER_ID);
         if (!readerDiv) {
@@ -231,7 +244,7 @@ export default function PantryManagerClient() {
                 return { width: qrboxSize, height: qrboxSize };
               },
               supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
-              formatsToSupport: [
+              formatsToSupport: [ // Explicitly list formats
                 Html5QrcodeSupportedFormats.UPC_A,
                 Html5QrcodeSupportedFormats.UPC_E,
                 Html5QrcodeSupportedFormats.EAN_13,
@@ -239,12 +252,12 @@ export default function PantryManagerClient() {
                 Html5QrcodeSupportedFormats.CODE_128,
               ],
             },
-            false
+            /* verbose= */ false
           );
 
           try {
             scanner.render(onScanSuccess, onScanFailure);
-            if (isScannerOpenRef.current) {
+            if (isScannerOpenRef.current) { // Check if still open before setting message
               setScannerMessage("Scanner active. Point camera at barcode.");
             }
             html5QrCodeScannerRef.current = scanner;
@@ -255,30 +268,35 @@ export default function PantryManagerClient() {
             }
           }
         }
-      }, 0);
+      }, 0); // Delay of 0ms pushes to next event loop tick
 
     } else {
+      // Cleanup when dialog is closed
       if (html5QrCodeScannerRef.current) {
         html5QrCodeScannerRef.current.clear()
           .catch(err => {
+            // Log clear errors but don't typically show to user unless persistent
             console.warn("Error clearing scanner on dialog close:", err);
           });
-        html5QrCodeScannerRef.current = null;
+        html5QrCodeScannerRef.current = null; // Ensure it's reset
       }
-      setScannerMessage(null);
+      setScannerMessage(null); // Clear any messages
     }
 
     return () => {
       if (timerId) {
         clearTimeout(timerId);
       }
-      if (html5QrCodeScannerRef.current && !isScannerOpenRef.current) {
+      // Ensure scanner is cleared if effect unmounts while open (e.g., component unmount)
+      // This check is important because `isScannerOpen` might be true during unmount.
+      if (html5QrCodeScannerRef.current && !isScannerOpenRef.current) { // Only clear if it should be closed
          html5QrCodeScannerRef.current.clear().catch(err => console.warn("Scanner clear failed on effect cleanup:", err));
          html5QrCodeScannerRef.current = null;
       }
     };
-  }, [isScannerOpen, onScanSuccess, onScanFailure]);
+  }, [isScannerOpen, onScanSuccess, onScanFailure]); // Callbacks are memoized
 
+  // Additional cleanup specifically for component unmount
   useEffect(() => {
     return () => {
       if (html5QrCodeScannerRef.current) {
@@ -299,42 +317,50 @@ export default function PantryManagerClient() {
     }
 
     const currentNewItemName = newItemName.trim();
-    const currentManualBarcode = manualBarcode.trim();
+    const currentManualBarcode = manualBarcode.trim(); // Use the state for manual barcode
     const currentNewItemQuantity = newItemQuantity.trim();
 
     const newItem: PantryItem = {
       id: Date.now().toString(),
       name: currentNewItemName,
-      quantity: currentNewItemQuantity || undefined, // Store as undefined if empty
+      quantity: currentNewItemQuantity || undefined,
       expiryDate: newItemExpiryDate || undefined,
       addedDate: new Date().toISOString(),
     };
     setPantryItems(prevItems => [...prevItems, newItem]);
 
+    // Determine which barcode to associate (prefer scanned if name matches, else manual)
     let barcodeToAssociate: string | null = null;
 
+    // If manual barcode is entered and item name is NOT just the barcode number itself
     if (currentManualBarcode && currentNewItemName !== currentManualBarcode) {
         barcodeToAssociate = currentManualBarcode;
     }
+    // If a barcode was scanned (lastScannedBarcode) and item name is NOT that barcode,
+    // and either no manual barcode was entered OR the manual barcode IS the item name
+    // (implying the API lookup populated newItemName from the scanned code)
     else if (lastScannedBarcode && currentNewItemName !== lastScannedBarcode && (!currentManualBarcode || currentNewItemName === currentManualBarcode)) {
         barcodeToAssociate = lastScannedBarcode;
     }
+
 
     if (barcodeToAssociate && barcodeDb[barcodeToAssociate] !== currentNewItemName) {
         setBarcodeDb(prevDb => ({ ...prevDb, [barcodeToAssociate!]: currentNewItemName }));
         toast({ title: "Item Added & Barcode Named", description: `Saved '${currentNewItemName}' for barcode ${barcodeToAssociate}.`, variant: "default" });
     } else if (barcodeToAssociate && barcodeDb[barcodeToAssociate] === currentNewItemName) {
+        // Barcode already known and matches, just confirm item added
         toast({ title: "Item Added", description: `${currentNewItemName} added to pantry. (Barcode ${barcodeToAssociate} already known)`, variant: "default" });
     }
      else {
+      // No barcode or barcode already known and matches
       toast({ title: "Item Added", description: `${currentNewItemName} added to pantry.`, variant: "default" });
     }
 
     setNewItemName('');
     setNewItemQuantity('');
     setNewItemExpiryDate('');
-    setLastScannedBarcode(null);
-    setManualBarcode('');
+    setLastScannedBarcode(null); // Clear after adding
+    setManualBarcode(''); // Clear manual barcode input
   };
 
   const handleStartEdit = (item: PantryItem) => {
@@ -375,7 +401,7 @@ export default function PantryManagerClient() {
     if (!isValid(date)) return { text: 'Invalid date', icon: AlertTriangle, color: 'text-yellow-500' };
 
     const today = new Date();
-    today.setHours(0,0,0,0);
+    today.setHours(0,0,0,0); // Normalize today to the start of the day
     const daysLeft = differenceInDays(date, today);
 
     if (daysLeft < 0) return { text: `Expired ${Math.abs(daysLeft)} days ago`, icon: AlertTriangle, color: 'text-red-600 font-semibold' };
@@ -386,8 +412,9 @@ export default function PantryManagerClient() {
   const filteredItems = pantryItems
     .filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
-      const aDate = a.expiryDate && isValid(parseISO(a.expiryDate)) ? parseISO(a.expiryDate) : new Date(8640000000000000);
-      const bDate = b.expiryDate && isValid(parseISO(b.expiryDate)) ? parseISO(b.expiryDate) : new Date(8640000000000000);
+      // Sort by expiry date, items without expiry or invalid dates go to the bottom
+      const aDate = a.expiryDate && isValid(parseISO(a.expiryDate)) ? parseISO(a.expiryDate) : new Date(8640000000000000); // Far future date
+      const bDate = b.expiryDate && isValid(parseISO(b.expiryDate)) ? parseISO(b.expiryDate) : new Date(8640000000000000); // Far future date
       return differenceInDays(aDate, bDate);
     });
 
@@ -465,6 +492,7 @@ export default function PantryManagerClient() {
                 </DialogHeader>
                 <div className="p-6 pt-0">
                   <div id={HTML5_QRCODE_READER_ID} className="w-full min-h-[250px] rounded-md border bg-muted overflow-hidden">
+                    {/* This div is targeted by Html5QrcodeScanner */}
                   </div>
                   {scannerMessage && (
                      <Alert
@@ -524,7 +552,7 @@ export default function PantryManagerClient() {
                   expiry.color === 'text-red-600 font-semibold' && 'border-red-500',
                   expiry.color === 'text-yellow-500' && 'border-yellow-500',
                   expiry.color === 'text-green-500' && 'border-green-500',
-                  !expiry.icon && 'border-transparent'
+                  !expiry.icon && 'border-transparent' // Or some default like border-muted
                 )}>
                   <h3 className="text-lg font-semibold text-foreground">{item.name}</h3>
                   <p className="text-sm text-muted-foreground">Quantity: {item.quantity || 'N/A'}</p>
@@ -557,6 +585,7 @@ export default function PantryManagerClient() {
         )}
       </GlassCard>
 
+      {/* Edit Item Dialog */}
       {editingItem && (
         <Dialog open={!!editingItem} onOpenChange={(isOpen) => { if (!isOpen) setEditingItem(null); }}>
           <DialogContent className="sm:max-w-[425px]">
