@@ -15,9 +15,10 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format, differenceInDays, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { cn } from '@/lib/utils';
-import { BrowserCodeReader, NotFoundException, ChecksumException, FormatException, type IScannerControls, type Result, DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Html5QrcodeScanner, Html5QrcodeScanType, QrcodeErrorCallback, QrcodeSuccessCallback, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 type BarcodeDatabase = { [barcode: string]: string };
+const HTML5_QRCODE_READER_ID = "html5-qrcode-reader";
 
 export default function PantryManagerClient() {
   const [pantryItems, setPantryItems] = useLocalStorage<PantryItem[]>(PANTRY_ITEMS_KEY, []);
@@ -36,216 +37,132 @@ export default function PantryManagerClient() {
   const [hasMounted, setHasMounted] = useState(false);
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  
-  const actualVideoRef = useRef<HTMLVideoElement | null>(null);
-  const [isVideoElementReady, setIsVideoElementReady] = useState(false);
-  const codeReaderRef = useRef<BrowserCodeReader | null>(null);
-  const controlsRef = useRef<IScannerControls | null>(null);
-  const streamForCleanupRef = useRef<MediaStream | null>(null);
-  const [scannerError, setScannerError] = useState<string | null>(null);
-  
+  const html5QrCodeScannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const isScannerOpenRef = useRef(isScannerOpen);
+  const [scannerMessage, setScannerMessage] = useState<string | null>(null);
+    
   const [barcodeDb, setBarcodeDb] = useLocalStorage<BarcodeDatabase>(BARCODE_DATABASE_KEY, {});
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
 
-  const isScannerOpenRef = useRef(isScannerOpen); 
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     isScannerOpenRef.current = isScannerOpen;
   }, [isScannerOpen]);
 
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
-  
-  const videoCallbackRef = useCallback((node: HTMLVideoElement | null) => {
-    if (node) {
-      actualVideoRef.current = node;
-      setIsVideoElementReady(true);
-    } else {
-      actualVideoRef.current = null;
-      setIsVideoElementReady(false);
-    }
-  }, []);
-
-  const stopCurrentScan = useCallback(() => {
-    if (controlsRef.current && typeof controlsRef.current.stop === 'function') {
-      try {
-        controlsRef.current.stop();
-      } catch (e) { console.warn("Error stopping scanner controls:", e); }
-    }
-    controlsRef.current = null;
-
-    if (codeReaderRef.current && typeof codeReaderRef.current.reset === 'function') {
-        try {
-          codeReaderRef.current.reset();
-        } catch(e) { console.warn("Error resetting code reader:", e); }
-    }
-    // codeReaderRef.current = null; // Null out to force re-creation
-
-    if (streamForCleanupRef.current) {
-      streamForCleanupRef.current.getTracks().forEach(track => track.stop());
-      streamForCleanupRef.current = null;
-    }
-
-    if (actualVideoRef.current && actualVideoRef.current.srcObject) {
-      actualVideoRef.current.srcObject = null;
-    }
-  }, []);
-
-
-  const handleScanSuccess = useCallback((scannedValue: string) => {
-    if (!isScannerOpenRef.current) return; 
-
-    const knownItemName = barcodeDb[scannedValue];
-    if (knownItemName) {
-      setNewItemName(knownItemName);
-      setManualBarcode(scannedValue);
-      toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
-    } else {
-      setNewItemName(scannedValue); 
-      setManualBarcode(scannedValue);
-      toast({ title: "New Barcode Scanned!", description: `Value: ${scannedValue}. Please enter item name or use as is.` });
-    }
-    setLastScannedBarcode(scannedValue); 
-    setIsScannerOpen(false); 
-  }, [barcodeDb, toast, setIsScannerOpen, setNewItemName, setLastScannedBarcode, setManualBarcode]);
-  
-  const handleScanError = useCallback((error: any) => {
-    if (!isScannerOpenRef.current) return;
-    
-    console.debug("ZXing scan attempt error:", error?.message || error);
-
-    if (error instanceof NotFoundException || error instanceof ChecksumException || error instanceof FormatException) {
-       if (scannerError && !scannerError.includes("Point camera at barcode")) {
-          setScannerError(null); 
-      }
-      return; 
-    }
-    console.error("Barcode scanning error during active scan:", error);
-    if (isScannerOpenRef.current) { 
-        setScannerError(`Error during barcode scanning: ${error.message || "Unknown error"}`);
-    }
-  }, [scannerError]); 
 
   useEffect(() => {
-    if (!isScannerOpen) {
-      stopCurrentScan();
-      if (hasCameraPermission !== null || scannerError !== null) { 
-        setHasCameraPermission(null);
-        setScannerError(null);
-      }
-      return; 
-    }
+    // Ensure the ref is updated with the current dialog state
+    isScannerOpenRef.current = isScannerOpen;
 
-    if (isScannerOpen && isVideoElementReady && actualVideoRef.current) {
-      
-      const initializeCameraAndScanner = async () => {
-        if (!isScannerOpenRef.current) return; 
+    const successCallback: QrcodeSuccessCallback = (decodedText, decodedResult) => {
+        if (!isScannerOpenRef.current) return; // Check ref to ensure dialog is still meant to be open
 
-        stopCurrentScan(); 
-
-        setScannerError(null); 
-        setHasCameraPermission(null); 
-
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          if (!isScannerOpenRef.current) { 
-            stream.getTracks().forEach(track => track.stop());
-            return;
-          }
-          streamForCleanupRef.current = stream; 
-
-          if (!actualVideoRef.current) { 
-             if (isScannerOpenRef.current) setScannerError("Video element became unavailable.");
-             stopCurrentScan();
-             return;
-          }
-          actualVideoRef.current.srcObject = stream;
-          
-          actualVideoRef.current.onloadedmetadata = async () => {
-            if (!isScannerOpenRef.current || !actualVideoRef.current) {
-              stopCurrentScan();
-              return;
-            }
-            try {
-                await actualVideoRef.current!.play(); 
-                if (!isScannerOpenRef.current) { 
-                    stopCurrentScan();
-                    return;
-                }
-                setHasCameraPermission(true); 
-                setScannerError(null); 
-                
-                const hints = new Map();
-                const formats = [
-                    BarcodeFormat.UPC_A,
-                    BarcodeFormat.UPC_E,
-                    BarcodeFormat.EAN_13,
-                    BarcodeFormat.EAN_8,
-                    BarcodeFormat.CODE_128,
-                ];
-                hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-                hints.set(DecodeHintType.TRY_HARDER, true);
-                
-                codeReaderRef.current = new BrowserCodeReader(hints); 
-                                
-                if (codeReaderRef.current && actualVideoRef.current && isScannerOpenRef.current) { 
-                    controlsRef.current = codeReaderRef.current.decodeFromVideoElement(
-                        actualVideoRef.current,
-                        (result: Result | undefined, error: any) => {
-                          if (!isScannerOpenRef.current) return; 
-                          if (result) {
-                            handleScanSuccess(result.getText());
-                          } else if (error) {
-                            handleScanError(error);
-                          }
-                        }
-                    );
-                } else {
-                     if (isScannerOpenRef.current) setScannerError("Scanner components not ready after video play.");
-                }
-            } catch (playError: any) {
-                console.error('Error playing video:', playError);
-                if(isScannerOpenRef.current) {
-                    setScannerError(`Could not play video stream: ${playError.message || "Unknown error"}`.trim());
-                    setHasCameraPermission(false);
-                }
-                stopCurrentScan(); 
-            }
-          };
-
-          actualVideoRef.current.onerror = (e) => { 
-            if(isScannerOpenRef.current) {
-                console.error('Video element encountered an error', e);
-                setScannerError("Video element encountered an error.");
-                setHasCameraPermission(false);
-            }
-            stopCurrentScan(); 
-          };
-
-        } catch (err: any) { 
-          if(isScannerOpenRef.current) {
-            console.error('Error initializing camera or scanner:', err);
-            let message = 'Could not initialize camera.';
-            if (err.name === "NotAllowedError") message = "Camera permission denied. Please enable it in browser settings.";
-            else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") message = "No camera found. Ensure one is connected.";
-            else if (err.name === "NotReadableError" || err.name === "TrackStartError") message = "Camera is in use or hardware issue.";
-            else if (err.message && typeof err.message === 'string' && err.message.length < 150) message = err.message;
-            setScannerError(message);
-            setHasCameraPermission(false);
-          }
-          stopCurrentScan(); 
+        console.log(`Scan result: ${decodedText}`, decodedResult);
+        const knownItemName = barcodeDb[decodedText];
+        if (knownItemName) {
+            setNewItemName(knownItemName);
+            setManualBarcode(decodedText);
+            toast({ title: "Barcode Matched!", description: `Item: ${knownItemName} (from your records)` });
+        } else {
+            setNewItemName(decodedText);
+            setManualBarcode(decodedText);
+            toast({ title: "New Barcode Scanned!", description: `Value: ${decodedText}. Please enter item name or use as is.` });
         }
-      };
-
-      initializeCameraAndScanner();
-    }
-    
-    return () => { 
-      stopCurrentScan();
+        setLastScannedBarcode(decodedText);
+        setIsScannerOpen(false); // Close dialog on success
     };
-  }, [isScannerOpen, isVideoElementReady, stopCurrentScan]);
+
+    const errorCallback: QrcodeErrorCallback = (errorMessage) => {
+        if (!isScannerOpenRef.current) return;
+        // console.debug(`html5-qrcode scan error: ${errorMessage}`);
+        // Error callback is called frequently. Update UI message judiciously.
+        if (errorMessage && 
+            !errorMessage.toLowerCase().includes("not found") && 
+            !errorMessage.toLowerCase().includes("qr code no longer detected") &&
+            !errorMessage.toLowerCase().includes("unable to query supported devices") && // Common initial harmless error
+            !errorMessage.toLowerCase().includes("insufficient vision")) // Common initial harmless error
+             {
+            setScannerMessage(`Scan Error: ${errorMessage}. Point camera at barcode.`);
+        } else {
+            setScannerMessage(currentMsg => {
+                if (currentMsg && currentMsg.startsWith("Scan Error:") && (errorMessage.toLowerCase().includes("not found") || errorMessage.toLowerCase().includes("qr code no longer detected"))) {
+                    return "Point camera at barcode.";
+                }
+                if (currentMsg && currentMsg.startsWith("Scan Error:")) return currentMsg;
+                return "Point camera at barcode.";
+            });
+        }
+    };
+
+    if (isScannerOpen) {
+        setScannerMessage("Initializing scanner...");
+        // Ensure the target div exists
+        const readerDiv = document.getElementById(HTML5_QRCODE_READER_ID);
+        if (!readerDiv) {
+            console.error(`Element with ID ${HTML5_QRCODE_READER_ID} not found.`);
+            setScannerMessage("Scanner UI element not found. Cannot start.");
+            return;
+        }
+        
+        const scanner = new Html5QrcodeScanner(
+            HTML5_QRCODE_READER_ID,
+            {
+                fps: 10,
+                qrbox: (viewfinderWidth, viewfinderHeight) => {
+                  const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                  const qrboxSize = Math.floor(minEdge * 0.8); // Make qrbox slightly larger
+                  return { width: qrboxSize, height: qrboxSize };
+                },
+                supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+                formatsToSupport: [ // Explicitly list common barcode formats
+                  Html5QrcodeSupportedFormats.UPC_A,
+                  Html5QrcodeSupportedFormats.UPC_E,
+                  Html5QrcodeSupportedFormats.EAN_13,
+                  Html5QrcodeSupportedFormats.EAN_8,
+                  Html5QrcodeSupportedFormats.CODE_128,
+                  // Add Html5QrcodeSupportedFormats.QR_CODE if you need QR codes too
+                ],
+                // aspectRatio: 1.0, // You can experiment with aspect ratio
+            },
+            /* verbose= */ false
+        );
+        
+        scanner.render(successCallback, errorCallback)
+          .then(() => {
+            setScannerMessage("Scanner active. Point camera at barcode.");
+          })
+          .catch(renderError => {
+            console.error("Error rendering Html5QrcodeScanner:", renderError);
+            setScannerMessage(`Error starting scanner: ${renderError.message || "Unknown error"}`);
+          });
+        html5QrCodeScannerRef.current = scanner;
+
+    } else { // isScannerOpen is false
+        if (html5QrCodeScannerRef.current) {
+            html5QrCodeScannerRef.current.clear()
+                .then(() => { /* console.log("Scanner cleared on close"); */ })
+                .catch(err => {
+                    // It's possible the element is already gone if dialog unmounts quickly
+                    // console.warn("Error clearing scanner on close (element might be gone):", err);
+                });
+            html5QrCodeScannerRef.current = null;
+        }
+        setScannerMessage(null);
+    }
+
+    return () => { // Cleanup function for when the component unmounts or isScannerOpen changes
+        if (html5QrCodeScannerRef.current) {
+            html5QrCodeScannerRef.current.clear()
+                .catch(err => {
+                     // console.warn("Error clearing scanner on cleanup (element might be gone):", err);
+                });
+            html5QrCodeScannerRef.current = null;
+        }
+    };
+}, [isScannerOpen, barcodeDb, setNewItemName, setManualBarcode, toast, setLastScannedBarcode, setIsScannerOpen]); // Effect dependencies
 
 
   const handleAddItem = () => {
@@ -269,11 +186,9 @@ export default function PantryManagerClient() {
     let barcodeToAssociate: string | null = null;
     let associationMade = false;
 
-    // Prefer scanned barcode if available and name is being set
     if (lastScannedBarcode && currentNewItemName !== lastScannedBarcode) {
         barcodeToAssociate = lastScannedBarcode;
     } 
-    // Else, use manual barcode if available and name is being set
     else if (currentManualBarcode && currentNewItemName !== currentManualBarcode) {
         barcodeToAssociate = currentManualBarcode;
     }
@@ -422,51 +337,19 @@ export default function PantryManagerClient() {
                   <DialogTitle>Scan Barcode</DialogTitle>
                 </DialogHeader>
                 <div className="p-6 pt-0">
-                  <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-muted">
-                    <video 
-                        ref={videoCallbackRef} 
-                        className="h-full w-full object-cover" 
-                        playsInline 
-                        autoPlay 
-                        muted 
-                    />
-                    
-                    {isScannerOpen && (hasCameraPermission === null || (hasCameraPermission === false && scannerError) || (!isVideoElementReady && hasCameraPermission !== false && !scannerError) ) && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 p-4 text-center">
-                        {(!isVideoElementReady && hasCameraPermission === null && !scannerError ) && (
-                             <>
-                             <Loader2 className="h-10 w-10 animate-spin text-primary mb-2" />
-                             <p className="text-muted-foreground">Preparing video element...</p>
-                             </>
-                        )}
-                        {(isVideoElementReady && hasCameraPermission === null && !scannerError) && ( 
-                            <>
-                            <Loader2 className="h-10 w-10 animate-spin text-primary mb-2" />
-                            <p className="text-muted-foreground">Initializing camera...</p>
-                            </>
-                        )}
-                        {(hasCameraPermission === false && scannerError) && ( 
-                            <Alert variant="destructive" className="w-full">
-                            <VideoOff className="h-5 w-5" />
-                            <AlertTitle>Camera Error</AlertTitle>
-                            <AlertDescription>{scannerError || "Unknown camera error."}</AlertDescription>
-                            </Alert>
-                        )}
-                        </div>
-                    )}
+                  <div id={HTML5_QRCODE_READER_ID} className="w-full rounded-md border bg-muted overflow-hidden">
+                    {/* html5-qrcode library will render camera feed here */}
                   </div>
-                   { (hasCameraPermission === true && scannerError && !scannerError.includes("Point camera at barcode")) && ( 
-                        <Alert variant="default" className="mt-4 border-yellow-500/50 text-yellow-700 dark:text-yellow-400 [&>svg]:text-yellow-500">
-                        <AlertTriangle className="h-5 w-5" />
-                        <AlertTitle>Scanning Issue</AlertTitle>
-                        <AlertDescription>{scannerError}</AlertDescription>
-                        </Alert>
-                    )}
-                     { (hasCameraPermission === true && !scannerError) && (
-                        <p className="mt-2 text-xs text-center text-muted-foreground">
-                           Point camera at barcode. Ensure good lighting, focus, and barcode is clearly visible. Try different angles and distances.
-                        </p>
-                    )}
+                  {scannerMessage && (
+                     <Alert 
+                        variant={scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? "destructive" : "default"} 
+                        className="mt-4"
+                    >
+                        {scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? <AlertTriangle className="h-5 w-5" /> : <Loader2 className="h-5 w-5 animate-spin" />}
+                        <AlertTitle>{scannerMessage.startsWith("Scan Error:") || scannerMessage.startsWith("Error starting scanner:") ? "Scanning Issue" : "Status"}</AlertTitle>
+                        <AlertDescription>{scannerMessage}</AlertDescription>
+                    </Alert>
+                  )}
                 </div>
                 <DialogFooter className="p-6 pt-2">
                     <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Cancel</Button>
