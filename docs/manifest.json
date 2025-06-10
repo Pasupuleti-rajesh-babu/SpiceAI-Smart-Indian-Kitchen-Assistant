@@ -1,0 +1,31 @@
+
+{
+  "name": "SpiceAI: Smart Indian Kitchen Assistant",
+  "short_name": "SpiceAI",
+  "description": "Your AI-powered guide to Indian cooking, pantry management, and meal planning.",
+  "icons": [
+    {
+      "src": "/image.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/image.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/image.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF0E6",
+  "theme_color": "#FF8C00",
+  "scope": "/"
+}

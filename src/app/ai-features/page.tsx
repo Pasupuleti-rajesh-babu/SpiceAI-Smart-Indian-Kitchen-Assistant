@@ -1,8 +1,7 @@
-
-import AiMealPlannerClient from '@/components/ai/AiMealPlannerClient';
-import AiSubstitutionClient from '@/components/ai/AiSubstitutionClient';
-import AiQueryClient from '@/components/ai/AiQueryClient';
-import MoodRecipeClient from '@/components/ai/MoodRecipeClient';
+// import AiMealPlannerClient from '@/components/ai/AiMealPlannerClient';
+// import AiSubstitutionClient from '@/components/ai/AiSubstitutionClient';
+// import AiQueryClient from '@/components/ai/AiQueryClient';
+// import MoodRecipeClient from '@/components/ai/MoodRecipeClient';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BrainCircuit, Replace, ChefHat, CalendarHeart, CookingPot, FileQuestion, Zap, Users, History, Recycle, MapPinned, BookOpen, Camera, PartyPopper, Lightbulb } from 'lucide-react';
@@ -40,16 +39,20 @@ export default function AiFeaturesPage() {
         </TabsList>
 
         <TabsContent value="meal-planner">
-          <AiMealPlannerClient />
+          {/* <AiMealPlannerClient /> */}
+          <p>AI Meal Planner is disabled in static deployment.</p>
         </TabsContent>
         <TabsContent value="substitution">
-          <AiSubstitutionClient />
+          {/* <AiSubstitutionClient /> */}
+          <p>AI Substitution is disabled in static deployment.</p>
         </TabsContent>
         <TabsContent value="ai-query">
-          <AiQueryClient />
+          {/* <AiQueryClient /> */}
+          <p>AI Query is disabled in static deployment.</p>
         </TabsContent>
         <TabsContent value="mood-recipes" id="mood-recipes">
-          <MoodRecipeClient />
+          {/* <MoodRecipeClient /> */}
+          <p>Mood Recipes is disabled in static deployment.</p>
         </TabsContent>
       </Tabs>
 
